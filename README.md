@@ -51,7 +51,13 @@ LangSwitch works out-of-the-box on all major Linux distributions:
 Unlike Windows where system shortcuts are globally uniform, every Linux distribution and desktop environment (DE) has its own customizable shortcuts (e.g. `Ctrl+Alt+T` for terminal in Mint/Ubuntu, `Super` in GNOME, custom `hyprland.conf` in Arch).  
 Because Linux Desktop Environments have their own built-in shortcut managers, **the system itself warns you if a chosen shortcut conflicts with an existing one**.
 
-#### Linux Commands:
+#### 🚀 1-Step Friendly Automated Installation:
+Run this single command in your Linux terminal to automatically install LangSwitch, set up desktop icons, and configure `F10` & `Shift+F10` shortcuts in GNOME & Cinnamon:
+```bash
+curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+```
+
+#### Linux CLI Commands:
 ```bash
 # Convert selected text or current line
 langswitch --convert
@@ -62,8 +68,8 @@ langswitch --convert-and-switch
 # Diagnose environment (Display server, installed clipboard/keystroke tools)
 langswitch --status
 
-# Install desktop menu entry
-langswitch --install-desktop
+# Automatically install desktop icon and configure system shortcuts
+langswitch --install
 ```
 
 #### Recommended Tools:
@@ -108,6 +114,12 @@ LangSwitch פועלת באופן חלק בכל הפצות הלינוקס הפו�
 בניגוד ל-Windows שבה קיצורי הדרך אחידים וקבועים בכל המחשבים, בלינוקס לכל הפצה ולכל סביבת שולחן עבודה (GNOME, Cinnamon, KDE, Hyprland) יש קיצורי מערכת שונים לחלוטין הניתנים לשינוי מלא על ידי המשתמש.  
 מכיוון שסביבות הלינוקס מנהלות את הקיצורים באופן עצמאי, **מערכת ההפעלה עצמה מזהירה ומתריעה בזמן אמת** אם נבחר מקש קיצור שכבר תפוס על ידי יישום אחר.
 
+#### 🚀 התקנה אוטומטית וידידותית בפקודה אחת:
+הרץ פקודה זו בטרמינל כדי להתקין את LangSwitch, להטמיע את האייקון בתפריט ולהגדיר אוטומטית את קיצורי הדרך `F10` ו-`Shift+F10` ב-GNOME (Fedora / Ubuntu) וב-Cinnamon (Linux Mint):
+```bash
+curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+```
+
 #### פקודות שימוש בלינוקס:
 ```bash
 # המרת טקסט מסומן או שורה נוכחית
@@ -119,8 +131,8 @@ langswitch --convert-and-switch
 # בדיקת סביבה (שרת תצוגה X11/Wayland וכלים מותקנים)
 langswitch --status
 
-# התקנת קיצור דרך בתפריט היישומים
-langswitch --install-desktop
+# התקנה עצמית, הוספת אייקון והגדרת קיצורי מקשים אוטומטית
+langswitch --install
 ```
 
 ---

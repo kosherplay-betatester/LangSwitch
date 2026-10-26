@@ -60,9 +60,9 @@ fn main() {
             return;
         }
 
-        if args.iter().any(|a| a == "--install-desktop") {
-            if let Err(e) = linux::install_desktop() {
-                eprintln!("Error installing desktop file: {}", e);
+        if args.iter().any(|a| a == "--install" || a == "--install-desktop" || a == "-i") {
+            if let Err(e) = linux::install_app_linux() {
+                eprintln!("Error installing LangSwitch: {}", e);
             }
             return;
         }

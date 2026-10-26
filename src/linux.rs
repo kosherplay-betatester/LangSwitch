@@ -399,27 +399,155 @@ pub fn print_status() {
     println!("==================================================");
 }
 
-/// Installs standard desktop shortcut to ~/.local/share/applications/langswitch.desktop
-pub fn install_desktop() -> Result<(), String> {
+const ICON_SVG: &str = include_str!("../assets/icon.svg");
+
+/// Installs standard desktop shortcut, embedded icon, and desktop environment shortcuts.
+pub fn install_app_linux() -> Result<(), String> {
     let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set")?;
-    let target_dir = PathBuf::from(home).join(".local/share/applications");
+
+    // 1. Install Icon to ~/.local/share/icons/hicolor/scalable/apps/langswitch.svg
+    let icon_dir = PathBuf::from(&home).join(".local/share/icons/hicolor/scalable/apps");
+    let _ = fs::create_dir_all(&icon_dir);
+    let icon_path = icon_dir.join("langswitch.svg");
+    if let Err(e) = fs::write(&icon_path, ICON_SVG) {
+        eprintln!("Warning: Failed writing icon to {}: {}", icon_path.display(), e);
+    } else {
+        println!("✅ Embedded SVG icon installed to: {}", icon_path.display());
+    }
+
+    // 2. Install Desktop file to ~/.local/share/applications/langswitch.desktop
+    let target_dir = PathBuf::from(&home).join(".local/share/applications");
     let _ = fs::create_dir_all(&target_dir);
     let desktop_file = target_dir.join("langswitch.desktop");
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_str = exe.to_string_lossy().to_string();
+
     let content = format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name=LangSwitch\n\
-         Comment=Hebrew/English Text Layout Switcher\n\
+         GenericName=Text Layout Switcher\n\
+         Comment=Instant Hebrew/English text conversion\n\
          Exec=\"{}\" --convert\n\
+         Icon=langswitch\n\
          Terminal=false\n\
-         Categories=Utility;\n\
-         Keywords=hebrew;english;layout;switch;langover;\n",
-        exe.to_string_lossy()
+         Categories=Utility;TextTools;\n\
+         Keywords=hebrew;english;layout;switch;langover;\n\
+         X-KDE-Shortcuts=F10\n\
+         Actions=SwitchLayout;\n\n\
+         [Desktop Action SwitchLayout]\n\
+         Name=Convert & Switch Keyboard Layout\n\
+         Exec=\"{}\" --convert-and-switch\n",
+        exe_str, exe_str
     );
 
     fs::write(&desktop_file, content).map_err(|e| e.to_string())?;
     println!("✅ Desktop entry successfully installed to: {}", desktop_file.display());
+
+    // 3. Automatically configure desktop environment keyboard shortcuts
+    auto_configure_desktop_shortcuts(&exe_str);
+
+    // 4. Update desktop and icon caches if tools exist
+    let _ = Command::new("update-desktop-database")
+        .arg(target_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    let _ = Command::new("gtk-update-icon-cache")
+        .arg("-f")
+        .arg(PathBuf::from(&home).join(".local/share/icons/hicolor"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    println!("\n🎉 LangSwitch הותקנה בהצלחה בלינוקס!");
+    println!("   מקש קיצור ראשי:  F10       (המרה)");
+    println!("   מקש קיצור משני: Shift+F10 (המרה + החלפת שפת מקלדת)");
     Ok(())
+}
+
+/// Automatically configures system shortcuts in GNOME (Fedora/Ubuntu) and Cinnamon (Linux Mint).
+pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
+    let de = detect_desktop_environment().to_lowercase();
+
+    // 1. GNOME (Fedora / Ubuntu / Debian)
+    if de.contains("gnome") {
+        println!("🔧 מגדיר אוטומטית מקשי קיצור ב-GNOME (Fedora / Ubuntu)...");
+        let p1 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-convert/";
+        let p2 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-switch/";
+
+        let list_str = format!("['{}', '{}']", p1, p2);
+        let _ = Command::new("gsettings")
+            .args(["set", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings", &list_str])
+            .status();
+
+        // Binding 1: F10
+        let _ = Command::new("gsettings")
+            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "name", "LangSwitch Convert"])
+            .status();
+        let cmd1 = format!("\"{}\" --convert", exe_path);
+        let _ = Command::new("gsettings")
+            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "command", &cmd1])
+            .status();
+        let _ = Command::new("gsettings")
+            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "binding", "F10"])
+            .status();
+
+        // Binding 2: Shift+F10
+        let _ = Command::new("gsettings")
+            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "name", "LangSwitch Convert & Switch"])
+            .status();
+        let cmd2 = format!("\"{}\" --convert-and-switch", exe_path);
+        let _ = Command::new("gsettings")
+            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "command", &cmd2])
+            .status();
+        let _ = Command::new("gsettings")
+            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "binding", "<Shift>F10"])
+            .status();
+        println!("✅ קיצורי הדרך F10 ו-Shift+F10 הוגדרו בהצלחה ב-GNOME!");
+        return;
+    }
+
+    // 2. Cinnamon (Linux Mint)
+    if de.contains("cinnamon") || de.contains("x-cinnamon") {
+        println!("🔧 מגדיר אוטומטית מקשי קיצור ב-Linux Mint (Cinnamon)...");
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings", "custom-list", "['langswitch0', 'langswitch1']"])
+            .status();
+
+        let cmd1 = format!("\"{}\" --convert", exe_path);
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/", "name", "LangSwitch Convert"])
+            .status();
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/", "command", &cmd1])
+            .status();
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/", "binding", "['F10']"])
+            .status();
+
+        let cmd2 = format!("\"{}\" --convert-and-switch", exe_path);
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "name", "LangSwitch Convert & Switch"])
+            .status();
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "command", &cmd2])
+            .status();
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "binding", "['<Shift>F10']"])
+            .status();
+        println!("✅ קיצורי הדרך F10 ו-Shift+F10 הוגדרו בהצלחה ב-Linux Mint Cinnamon!");
+        return;
+    }
+
+    // 3. Other environments (KDE / Hyprland / Sway / i3)
+    if de.contains("kde") || de.contains("plasma") {
+        println!("ℹ️  ב-KDE Plasma: קיצור הדרך F10 מוטמע ישירות בקובץ ה-desktop שהותקן.");
+    } else {
+        println!("💡 ב-Hyprland / Sway / i3 הוסף להגדרות:");
+        println!("   bind = , F10, exec, {} --convert", exe_path);
+        println!("   bind = SHIFT, F10, exec, {} --convert-and-switch", exe_path);
+    }
 }

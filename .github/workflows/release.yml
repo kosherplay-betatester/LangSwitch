@@ -60,6 +60,7 @@ jobs:
       - name: Package Linux tar.gz
         run: |
           cp target/release/langswitch langswitch-linux-x86_64
+          cp README.md target/release/README.md
           tar -czf LangSwitch-linux-x86_64.tar.gz -C target/release langswitch README.md
 
       - name: Upload Linux Artifact

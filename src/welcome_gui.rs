@@ -58,7 +58,7 @@ pub fn show_welcome_window(config: &AppConfig) {
         RegisterClassExW(&wnd_class);
 
         let win_width = 580;
-        let win_height = 490;
+        let win_height = 540;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
@@ -178,7 +178,7 @@ unsafe fn init_welcome_controls(
         WC_BUTTONW,
         if is_en { " What LangSwitch does: " } else { " מה האפליקציה יודעת לעשות? " },
         BS_GROUPBOX as u32,
-        25, 90, 515, 280, 12,
+        25, 90, 515, 335, 12,
     );
 
     // Features List
@@ -187,6 +187,7 @@ unsafe fn init_welcome_controls(
             ("⌨️  Primary Hotkey (F10):", "Instantly converts mistyped text AND switches input language layout automatically!"),
             ("🎯  Auto-Line Selection:", "No need to select text! If unselected, the entire current line is converted instantly."),
             ("⚡  Secondary Hotkey (Ctrl + F10):", "Converts text ONLY (without changing keyboard input layout)."),
+            ("🔍  Google AI Search (Shift + Win + G):", "Takes any copied/selected text and opens Google AI Mode directly (&udm=50)!"),
             ("🪟  Silent & Lightweight:", "Runs quietly in your System Tray with 0.00% CPU and minimal memory."),
         ]
     } else {
@@ -194,23 +195,24 @@ unsafe fn init_welcome_controls(
             ("\u{200F}⌨️  מקש ראשי (F10):", "\u{200F}המרה מיידית של טקסט שנכתב בשפה הפוכה + החלפת שפת המקלדת אוטומטית!"),
             ("\u{200F}🎯  זיהוי שורה אוטומטי:", "\u{200F}אין צורך לסמן בעכבר! אם לא סומן טקסט, כל השורה שהקלדת תומר מיד."),
             ("\u{200F}⚡  מקש משני (Ctrl + F10):", "\u{200F}המרת טקסט בלבד (ללא שינוי שפת קלט המקלדת)."),
+            ("\u{200F}🔍  חיפוש ב-Google AI (Shift + Win + G):", "\u{200F}מסמנים כל טקסט ופותחים אותו מיד במצב ה-AI החדש של גוגל (&udm=50)!"),
             ("\u{200F}🪟  שקט וחסכוני במשאבים:", "\u{200F}פועל ברקע באזור מגש המערכת (ליד השעון) עם 0% ניצול מעבד."),
         ]
     };
 
-    let mut start_y = 120;
+    let mut start_y = 115;
     for (idx, (lead, desc)) in items.iter().enumerate() {
         let lbl_lead = create_ctrl(WC_STATICW, lead, 0, 45, start_y, 475, 20, 20 + idx * 2);
         unsafe {
             SendMessageW(lbl_lead, WM_SETFONT, hfont_body as WPARAM, 1);
         }
 
-        let lbl_desc = create_ctrl(WC_STATICW, desc, 0, 50, start_y + 20, 465, 22, 21 + idx * 2);
+        let lbl_desc = create_ctrl(WC_STATICW, desc, 0, 50, start_y + 19, 465, 20, 21 + idx * 2);
         unsafe {
             SendMessageW(lbl_desc, WM_SETFONT, hfont_body as WPARAM, 1);
         }
 
-        start_y += 55;
+        start_y += 50;
     }
 
     // Action button: Let's start!
@@ -219,7 +221,7 @@ unsafe fn init_welcome_controls(
         WC_BUTTONW,
         btn_text,
         BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
-        170, 395, 230, 40,
+        170, 445, 230, 40,
         ID_BTN_START,
     );
     unsafe {

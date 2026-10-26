@@ -401,10 +401,19 @@ fn default_ui_language() -> String {
     "he".to_string()
 }
 
+fn default_hotkey_ai_search() -> HotkeyConfig {
+    HotkeyConfig {
+        modifiers: MOD_SHIFT | MOD_WIN,
+        vk: 0x47, // 'G'
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub hotkey_primary: HotkeyConfig,
     pub hotkey_secondary: HotkeyConfig,
+    #[serde(default = "default_hotkey_ai_search")]
+    pub hotkey_ai_search: HotkeyConfig,
     pub auto_switch_layout: bool,
     pub auto_select_line: bool,
     pub start_with_windows: bool,
@@ -427,6 +436,11 @@ impl Default for AppConfig {
             hotkey_secondary: HotkeyConfig {
                 modifiers: MOD_CONTROL,
                 vk: VK_F10,
+            },
+            // Default: Shift + Win + G (Google AI Search with &udm=50)
+            hotkey_ai_search: HotkeyConfig {
+                modifiers: MOD_SHIFT | MOD_WIN,
+                vk: 0x47, // 'G'
             },
             auto_switch_layout: true,
             auto_select_line: true,
@@ -646,5 +660,11 @@ mod tests {
     #[test]
     fn test_alt_f4_conflict() {
         assert!(is_windows_conflict(MOD_ALT, VK_F4));
+    }
+
+    #[test]
+    fn test_ai_search_hotkey_safe() {
+        // Shift + Win + G is safe and does not conflict with Windows Game Bar (Win+G)
+        assert!(!is_windows_conflict(MOD_SHIFT | MOD_WIN, 0x47));
     }
 }

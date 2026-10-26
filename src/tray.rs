@@ -38,6 +38,7 @@ pub const WM_TRAYICON: u32 = WM_USER + 100;
 pub const WM_APP_RELOAD_CONFIG: u32 = WM_USER + 101;
 pub const HOTKEY_PRIMARY_ID: i32 = 1001;
 pub const HOTKEY_SECONDARY_ID: i32 = 1002;
+pub const HOTKEY_AI_SEARCH_ID: i32 = 1003;
 
 const ID_TRAY_TITLE: usize = 2000;
 const ID_TRAY_SETTINGS: usize = 2001;
@@ -200,8 +201,11 @@ pub fn run_tray_app(initial_config: AppConfig) {
         nid.hIcon = icon_active;
 
         let tip = format!(
-            "LangSwitch - פעיל\nמקש ראשי: {}",
-            initial_config.hotkey_primary.display_string()
+            "LangSwitch v{}\nראשי: {}\nמשני: {}\nחיפוש AI: {}",
+            CURRENT_VERSION,
+            initial_config.hotkey_primary.display_string(),
+            initial_config.hotkey_secondary.display_string(),
+            initial_config.hotkey_ai_search.display_string(),
         );
         let wide_tip = to_wide(&tip);
         let copy_len = wide_tip.len().min(nid.szTip.len());
@@ -242,6 +246,7 @@ unsafe fn register_configured_hotkeys(hwnd: HWND, config: &AppConfig) {
     unsafe {
         UnregisterHotKey(hwnd, HOTKEY_PRIMARY_ID);
         UnregisterHotKey(hwnd, HOTKEY_SECONDARY_ID);
+        UnregisterHotKey(hwnd, HOTKEY_AI_SEARCH_ID);
 
         RegisterHotKey(
             hwnd,
@@ -255,6 +260,13 @@ unsafe fn register_configured_hotkeys(hwnd: HWND, config: &AppConfig) {
             HOTKEY_SECONDARY_ID,
             config.hotkey_secondary.modifiers | MOD_NOREPEAT,
             config.hotkey_secondary.vk,
+        );
+
+        RegisterHotKey(
+            hwnd,
+            HOTKEY_AI_SEARCH_ID,
+            config.hotkey_ai_search.modifiers | MOD_NOREPEAT,
+            config.hotkey_ai_search.vk,
         );
     }
 }
@@ -278,24 +290,35 @@ unsafe extern "system" fn tray_wnd_proc(
                 let app = unsafe { &mut *state_ptr };
                 if !app.is_paused.load(Ordering::SeqCst) {
                     let hotkey_id = wparam as i32;
-                    let (auto_select, switch_layout, restore_clip) = {
-                        let cfg = app.config.lock().unwrap();
-                        (
-                            cfg.auto_select_line,
-                            if hotkey_id == HOTKEY_PRIMARY_ID {
-                                // Primary hotkey: convert text AND switch keyboard layout
-                                cfg.auto_switch_layout
-                            } else {
-                                // Secondary hotkey: convert text ONLY (no layout switch)
-                                false
-                            },
-                            cfg.restore_clipboard,
-                        )
-                    };
+                    if hotkey_id == HOTKEY_AI_SEARCH_ID {
+                        let (auto_select, restore_clip) = {
+                            let cfg = app.config.lock().unwrap();
+                            (cfg.auto_select_line, cfg.restore_clipboard)
+                        };
 
-                    thread::spawn(move || {
-                        perform_conversion(auto_select, switch_layout, restore_clip);
-                    });
+                        thread::spawn(move || {
+                            perform_google_ai_search(auto_select, restore_clip);
+                        });
+                    } else {
+                        let (auto_select, switch_layout, restore_clip) = {
+                            let cfg = app.config.lock().unwrap();
+                            (
+                                cfg.auto_select_line,
+                                if hotkey_id == HOTKEY_PRIMARY_ID {
+                                    // Primary hotkey: convert text AND switch keyboard layout
+                                    cfg.auto_switch_layout
+                                } else {
+                                    // Secondary hotkey: convert text ONLY (no layout switch)
+                                    false
+                                },
+                                cfg.restore_clipboard,
+                            )
+                        };
+
+                        thread::spawn(move || {
+                            perform_conversion(auto_select, switch_layout, restore_clip);
+                        });
+                    }
                 }
             }
             return 0;
@@ -311,9 +334,11 @@ unsafe extern "system" fn tray_wnd_proc(
                 }
                 unsafe {
                     let tip = format!(
-                        "LangSwitch - פעיל\nמקש ראשי: {}\nמקש משני: {}",
+                        "LangSwitch v{}\nראשי: {}\nמשני: {}\nחיפוש AI: {}",
+                        CURRENT_VERSION,
                         cfg.hotkey_primary.display_string(),
-                        cfg.hotkey_secondary.display_string()
+                        cfg.hotkey_secondary.display_string(),
+                        cfg.hotkey_ai_search.display_string(),
                     );
                     let tip_wide = to_wide(&tip);
                     let len = tip_wide.len().min(app.nid.szTip.len());
@@ -446,6 +471,7 @@ unsafe extern "system" fn tray_wnd_proc(
                         Shell_NotifyIconW(NIM_DELETE, &app.nid);
                         UnregisterHotKey(hwnd, HOTKEY_PRIMARY_ID);
                         UnregisterHotKey(hwnd, HOTKEY_SECONDARY_ID);
+                        UnregisterHotKey(hwnd, HOTKEY_AI_SEARCH_ID);
                         PostQuitMessage(0);
                     },
                     _ => {}
@@ -460,6 +486,7 @@ unsafe extern "system" fn tray_wnd_proc(
                     Shell_NotifyIconW(NIM_DELETE, &app.nid);
                     UnregisterHotKey(hwnd, HOTKEY_PRIMARY_ID);
                     UnregisterHotKey(hwnd, HOTKEY_SECONDARY_ID);
+                    UnregisterHotKey(hwnd, HOTKEY_AI_SEARCH_ID);
                     DeleteObject(app.icon_active as *mut _);
                     DeleteObject(app.icon_paused as *mut _);
                 }
@@ -689,3 +716,114 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
         });
     }
 }
+
+/// Standard URL query string encoder (alphanumeric, -, _, ., ~ unchanged; spaces become '+'; other bytes %XX)
+pub fn url_encode(input: &str) -> String {
+    let mut encoded = String::with_capacity(input.len() * 2);
+    for b in input.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(b as char);
+            }
+            b' ' => {
+                encoded.push('+');
+            }
+            other => {
+                encoded.push_str(&format!("%{:02X}", other));
+            }
+        }
+    }
+    encoded
+}
+
+/// Copies selected text (or current line if auto_select_line is enabled) and opens Google AI Search (&udm=50) in a new browser tab
+pub fn perform_google_ai_search(auto_select_line: bool, restore_clipboard: bool) {
+    let original_clipboard = if restore_clipboard {
+        clipboard::get_clipboard_text()
+    } else {
+        None
+    };
+
+    // 1. Ensure any physically held modifiers (Shift, Win, Ctrl, Alt) are released
+    clipboard::release_physical_modifiers();
+
+    // 2. Clear clipboard first
+    clipboard::clear_clipboard();
+
+    // 3. Try copying already-selected text
+    clipboard::send_ctrl_c();
+
+    let mut query_text = None;
+    for _ in 0..5 {
+        thread::sleep(Duration::from_millis(2));
+        if let Some(t) = clipboard::get_clipboard_text() {
+            let trimmed = t.trim().to_string();
+            if !trimmed.is_empty() {
+                query_text = Some(trimmed);
+                break;
+            }
+        }
+    }
+
+    // 4. If nothing was selected and auto_select_line is enabled, select current line
+    if query_text.is_none() && auto_select_line {
+        clipboard::clear_clipboard();
+        clipboard::select_current_line_and_copy();
+
+        for _ in 0..6 {
+            thread::sleep(Duration::from_millis(2));
+            if let Some(t) = clipboard::get_clipboard_text() {
+                let trimmed = t.trim().to_string();
+                if !trimmed.is_empty() {
+                    query_text = Some(trimmed);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 5. Restore clipboard if requested
+    if let Some(orig) = original_clipboard {
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            clipboard::set_clipboard_text(&orig);
+        });
+    }
+
+    // 6. If we have a query, open Google AI Search with &udm=50 in the default browser!
+    if let Some(query) = query_text {
+        let encoded = url_encode(&query);
+        let search_url = format!("https://www.google.com/search?q={}&udm=50", encoded);
+        let wide_url = to_wide(&search_url);
+        let wide_open = to_wide("open");
+
+        unsafe {
+            ShellExecuteW(
+                ptr::null_mut(),
+                wide_open.as_ptr(),
+                wide_url.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                SW_SHOW,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_url_encode_english() {
+        assert_eq!(url_encode("what is oxygen"), "what+is+oxygen");
+    }
+
+    #[test]
+    fn test_url_encode_hebrew() {
+        let enc = url_encode("מה זה חמצן");
+        assert!(enc.contains('+'));
+        assert!(enc.contains('%'));
+    }
+}
+

@@ -35,10 +35,11 @@ const BST_UNCHECKED: isize = 0;
 const ID_LBL_GRP_HOTKEYS: usize = 90;
 const ID_LBL_PRI_TITLE: usize = 91;
 const ID_LBL_SEC_TITLE: usize = 92;
-const ID_LBL_GRP_OPTIONS: usize = 93;
-const ID_LBL_GRP_UPDATES: usize = 94;
-const ID_LBL_VERSION: usize = 95;
-const ID_LBL_LANG: usize = 96;
+const ID_LBL_AI_TITLE: usize = 93;
+const ID_LBL_GRP_OPTIONS: usize = 94;
+const ID_LBL_GRP_UPDATES: usize = 95;
+const ID_LBL_VERSION: usize = 96;
+const ID_LBL_LANG: usize = 97;
 
 const ID_CHK_PRI_CTRL: usize = 101;
 const ID_CHK_PRI_ALT: usize = 102;
@@ -62,6 +63,12 @@ const ID_BTN_SAVE: usize = 116;
 const ID_BTN_CANCEL: usize = 117;
 const ID_BTN_RESTORE_DEFAULTS: usize = 118;
 const ID_CMB_LANG: usize = 119;
+
+const ID_CHK_AI_CTRL: usize = 120;
+const ID_CHK_AI_ALT: usize = 121;
+const ID_CHK_AI_SHIFT: usize = 122;
+const ID_CHK_AI_WIN: usize = 123;
+const ID_CMB_AI_KEY: usize = 124;
 
 const CB_ADDSTRING: u32 = 0x0143;
 const CB_SETCURSEL: u32 = 0x014E;
@@ -109,7 +116,7 @@ pub fn show_settings_window(
         RegisterClassExW(&wnd_class);
 
         let win_width = 620;
-        let win_height = 575;
+        let win_height = 625;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
@@ -166,6 +173,7 @@ pub fn show_settings_window(
             bg_brush,
             pri_vk: current_config.hotkey_primary.vk,
             sec_vk: current_config.hotkey_secondary.vk,
+            ai_vk: current_config.hotkey_ai_search.vk,
             is_english: is_en,
             last_welcome_version: current_config.last_welcome_version.clone(),
         });
@@ -190,6 +198,7 @@ struct SettingsState {
     bg_brush: HBRUSH,
     pri_vk: u32,
     sec_vk: u32,
+    ai_vk: u32,
     is_english: bool,
     last_welcome_version: Option<String>,
 }
@@ -253,20 +262,18 @@ unsafe fn init_controls(
         SendMessageW(cmb_lang, CB_ADDSTRING, 0, lang_en.as_ptr() as LPARAM);
         SendMessageW(cmb_lang, CB_SETCURSEL, if is_en { 1 } else { 0 }, 0);
     }
-
-    // --- Group 1: Hotkeys ---
     create_ctrl(
         WC_BUTTONW,
-        if is_en { " Hotkeys " } else { " מקשי קיצור (Hotkeys) " },
+        if is_en { " Hotkeys " } else { "\u{200F} מקשי קיצור (Hotkeys) " },
         BS_GROUPBOX as u32,
         15,
         36,
         575,
-        165,
+        225,
         ID_LBL_GRP_HOTKEYS,
     );
 
-    // Primary hotkey
+    // 1. Primary hotkey
     create_ctrl(
         WC_STATICW,
         if is_en {
@@ -276,30 +283,29 @@ unsafe fn init_controls(
         },
         0,
         30,
-        60,
+        58,
         350,
         20,
         ID_LBL_PRI_TITLE,
     );
 
-    let chk_pri_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 85, 55, 20, ID_CHK_PRI_CTRL);
-    let chk_pri_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 85, 50, 20, ID_CHK_PRI_ALT);
-    let chk_pri_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 85, 58, 20, ID_CHK_PRI_SHIFT);
-    let chk_pri_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 85, 52, 20, ID_CHK_PRI_WIN);
+    let chk_pri_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 80, 55, 20, ID_CHK_PRI_CTRL);
+    let chk_pri_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 80, 50, 20, ID_CHK_PRI_ALT);
+    let chk_pri_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 80, 58, 20, ID_CHK_PRI_SHIFT);
+    let chk_pri_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 80, 52, 20, ID_CHK_PRI_WIN);
 
-    // Primary ComboBox WITH WS_VSCROLL for mouse wheel scrolling!
     let _cmb_pri_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
         275,
-        83,
+        78,
         290,
         380,
         ID_CMB_PRI_KEY,
     );
 
-    // Secondary hotkey
+    // 2. Secondary hotkey
     create_ctrl(
         WC_STATICW,
         if is_en {
@@ -309,27 +315,58 @@ unsafe fn init_controls(
         },
         0,
         30,
-        118,
+        114,
         350,
         20,
         ID_LBL_SEC_TITLE,
     );
 
-    let chk_sec_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 142, 55, 20, ID_CHK_SEC_CTRL);
-    let chk_sec_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 142, 50, 20, ID_CHK_SEC_ALT);
-    let chk_sec_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 142, 58, 20, ID_CHK_SEC_SHIFT);
-    let chk_sec_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 142, 52, 20, ID_CHK_SEC_WIN);
+    let chk_sec_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 136, 55, 20, ID_CHK_SEC_CTRL);
+    let chk_sec_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 136, 50, 20, ID_CHK_SEC_ALT);
+    let chk_sec_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 136, 58, 20, ID_CHK_SEC_SHIFT);
+    let chk_sec_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 136, 52, 20, ID_CHK_SEC_WIN);
 
-    // Secondary ComboBox WITH WS_VSCROLL for mouse wheel scrolling!
     let _cmb_sec_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
         275,
-        140,
+        134,
         290,
         380,
         ID_CMB_SEC_KEY,
+    );
+
+    // 3. Google AI Search hotkey
+    create_ctrl(
+        WC_STATICW,
+        if is_en {
+            "Google AI Search Hotkey (AI Mode):"
+        } else {
+            "\u{200F}חיפוש גוגל במצב AI (Google AI Search):"
+        },
+        0,
+        30,
+        170,
+        350,
+        20,
+        ID_LBL_AI_TITLE,
+    );
+
+    let chk_ai_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 192, 55, 20, ID_CHK_AI_CTRL);
+    let chk_ai_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 192, 50, 20, ID_CHK_AI_ALT);
+    let chk_ai_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 192, 58, 20, ID_CHK_AI_SHIFT);
+    let chk_ai_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 192, 52, 20, ID_CHK_AI_WIN);
+
+    let _cmb_ai_key = create_ctrl(
+        WC_COMBOBOXW,
+        "",
+        CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
+        275,
+        190,
+        290,
+        380,
+        ID_CMB_AI_KEY,
     );
 
     // Set primary modifier checkboxes
@@ -360,6 +397,20 @@ unsafe fn init_controls(
         if config.hotkey_secondary.modifiers & MOD_WIN != 0 {
             SendMessageW(chk_sec_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
         }
+
+        // Set AI search modifier checkboxes
+        if config.hotkey_ai_search.modifiers & MOD_CONTROL != 0 {
+            SendMessageW(chk_ai_ctrl, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
+        if config.hotkey_ai_search.modifiers & MOD_ALT != 0 {
+            SendMessageW(chk_ai_alt, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
+        if config.hotkey_ai_search.modifiers & MOD_SHIFT != 0 {
+            SendMessageW(chk_ai_shift, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
+        if config.hotkey_ai_search.modifiers & MOD_WIN != 0 {
+            SendMessageW(chk_ai_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
     }
 
     // Populate comboboxes
@@ -376,15 +427,21 @@ unsafe fn init_controls(
             config.hotkey_secondary.modifiers,
             config.hotkey_secondary.vk,
         );
+        populate_combobox(
+            hwnd,
+            ID_CMB_AI_KEY,
+            config.hotkey_ai_search.modifiers,
+            config.hotkey_ai_search.vk,
+        );
     }
 
     // --- Group 2: Behavior Options ---
     create_ctrl(
         WC_BUTTONW,
-        if is_en { " Options & Behavior " } else { " אפשרויות והתנהגות " },
+        if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " },
         BS_GROUPBOX as u32,
         15,
-        210,
+        270,
         575,
         145,
         ID_LBL_GRP_OPTIONS,
@@ -395,11 +452,11 @@ unsafe fn init_controls(
         if is_en {
             "Switch keyboard layout automatically on conversion (Primary key)"
         } else {
-            "החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)"
+            "\u{200F}החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)"
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        235,
+        295,
         540,
         22,
         ID_CHK_AUTO_SWITCH,
@@ -415,11 +472,11 @@ unsafe fn init_controls(
         if is_en {
             "Auto-select current line if no text is selected"
         } else {
-            "סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט"
+            "\u{200F}סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט"
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        262,
+        322,
         540,
         22,
         ID_CHK_AUTO_SELECT_LINE,
@@ -435,11 +492,11 @@ unsafe fn init_controls(
         if is_en {
             "Start automatically on Windows login"
         } else {
-            "הפעל אוטומטית עם כניסה למערכת Windows"
+            "\u{200F}הפעל אוטומטית עם כניסה למערכת Windows"
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        289,
+        349,
         540,
         22,
         ID_CHK_START_WINDOWS,
@@ -455,11 +512,11 @@ unsafe fn init_controls(
         if is_en {
             "Restore original clipboard contents after conversion"
         } else {
-            "שחזר לוח גזירים (Clipboard) מקורי לאחר ההמרה"
+            "\u{200F}שחזר לוח גזירים (Clipboard) מקורי לאחר ההמרה"
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        316,
+        376,
         540,
         22,
         ID_CHK_RESTORE_CLIPBOARD,
@@ -473,10 +530,10 @@ unsafe fn init_controls(
     // --- Group 3: Update and Info ---
     create_ctrl(
         WC_BUTTONW,
-        if is_en { " Updates & Info " } else { " עדכונים ומידע " },
+        if is_en { " Updates & Info " } else { "\u{200F} עדכונים ומידע " },
         BS_GROUPBOX as u32,
         15,
-        365,
+        425,
         575,
         70,
         ID_LBL_GRP_UPDATES,
@@ -485,16 +542,16 @@ unsafe fn init_controls(
     let ver_label = if is_en {
         format!("Current Version: v{}", CURRENT_VERSION)
     } else {
-        format!("גרסה נוכחית: v{}", CURRENT_VERSION)
+        format!("\u{200F}גרסה נוכחית: v{}", CURRENT_VERSION)
     };
-    create_ctrl(WC_STATICW, &ver_label, 0, 30, 395, 230, 20, ID_LBL_VERSION);
+    create_ctrl(WC_STATICW, &ver_label, 0, 30, 455, 230, 20, ID_LBL_VERSION);
 
     create_ctrl(
         WC_BUTTONW,
         if is_en { "Check for Updates" } else { "בדוק עדכונים מ-GitHub" },
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
         390,
-        388,
+        448,
         185,
         30,
         ID_BTN_CHECK_UPDATE,
@@ -506,7 +563,7 @@ unsafe fn init_controls(
         if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" },
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
         15,
-        485,
+        515,
         160,
         34,
         ID_BTN_RESTORE_DEFAULTS,
@@ -517,7 +574,7 @@ unsafe fn init_controls(
         if is_en { "Save & Apply" } else { "שמור והחל" },
         BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
         330,
-        485,
+        515,
         130,
         34,
         ID_BTN_SAVE,
@@ -528,8 +585,8 @@ unsafe fn init_controls(
         if is_en { "Cancel" } else { "ביטול" },
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
         470,
-        485,
-        115,
+        515,
+        120,
         34,
         ID_BTN_CANCEL,
     );
@@ -577,21 +634,24 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
         UpdateWindow(cmb);
     }
 
-    // Keep state updated so state.pri_vk / state.sec_vk always reflects the actual selected key!
+    // Keep state updated so state.pri_vk / state.sec_vk / state.ai_vk always reflects the actual selected key!
     if !state_ptr.is_null() {
         let state = unsafe { &mut *state_ptr };
         if let Some((_, vk)) = valid_keys.get(selected_idx) {
             if cmb_id == ID_CMB_PRI_KEY {
                 state.pri_vk = *vk;
-            } else {
+            } else if cmb_id == ID_CMB_SEC_KEY {
                 state.sec_vk = *vk;
+            } else if cmb_id == ID_CMB_AI_KEY {
+                state.ai_vk = *vk;
             }
         }
     }
 }
 
 /// Reads the modifier checkboxes and updates the combobox filtering in real-time.
-unsafe fn refresh_hotkey_combobox(hwnd: HWND, is_primary: bool) {
+/// target: 0 = Primary, 1 = Secondary, 2 = AI Search
+unsafe fn refresh_hotkey_combobox(hwnd: HWND, target: u8) {
     let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
 
     let is_checked = |id: usize| -> bool {
@@ -601,7 +661,7 @@ unsafe fn refresh_hotkey_combobox(hwnd: HWND, is_primary: bool) {
         }
     };
 
-    if is_primary {
+    if target == 0 {
         let mut modifiers = 0;
         if is_checked(ID_CHK_PRI_CTRL) {
             modifiers |= MOD_CONTROL;
@@ -625,7 +685,7 @@ unsafe fn refresh_hotkey_combobox(hwnd: HWND, is_primary: bool) {
         unsafe {
             populate_combobox(hwnd, ID_CMB_PRI_KEY, modifiers, current_vk);
         }
-    } else {
+    } else if target == 1 {
         let mut modifiers = 0;
         if is_checked(ID_CHK_SEC_CTRL) {
             modifiers |= MOD_CONTROL;
@@ -648,6 +708,30 @@ unsafe fn refresh_hotkey_combobox(hwnd: HWND, is_primary: bool) {
 
         unsafe {
             populate_combobox(hwnd, ID_CMB_SEC_KEY, modifiers, current_vk);
+        }
+    } else {
+        let mut modifiers = 0;
+        if is_checked(ID_CHK_AI_CTRL) {
+            modifiers |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_AI_ALT) {
+            modifiers |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_AI_SHIFT) {
+            modifiers |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_AI_WIN) {
+            modifiers |= MOD_WIN;
+        }
+
+        let current_vk = if !state_ptr.is_null() {
+            unsafe { (*state_ptr).ai_vk }
+        } else {
+            0x47 // 'G'
+        };
+
+        unsafe {
+            populate_combobox(hwnd, ID_CMB_AI_KEY, modifiers, current_vk);
         }
     }
 }
@@ -673,7 +757,7 @@ unsafe extern "system" fn settings_wnd_proc(
                         let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_PRI_KEY as i32) };
                         let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
                         if idx >= 0 {
-                            let modifiers = unsafe { get_modifiers(hwnd, true) };
+                            let modifiers = unsafe { get_modifiers(hwnd, 0) };
                             let valid: Vec<_> = ALL_KEYBOARD_KEYS
                                 .iter()
                                 .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
@@ -686,13 +770,26 @@ unsafe extern "system" fn settings_wnd_proc(
                         let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_SEC_KEY as i32) };
                         let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
                         if idx >= 0 {
-                            let modifiers = unsafe { get_modifiers(hwnd, false) };
+                            let modifiers = unsafe { get_modifiers(hwnd, 1) };
                             let valid: Vec<_> = ALL_KEYBOARD_KEYS
                                 .iter()
                                 .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
                                 .collect();
                             if let Some((_, vk)) = valid.get(idx as usize) {
                                 state.sec_vk = *vk;
+                            }
+                        }
+                    } else if ctrl_id == ID_CMB_AI_KEY {
+                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_AI_KEY as i32) };
+                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                        if idx >= 0 {
+                            let modifiers = unsafe { get_modifiers(hwnd, 2) };
+                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                                .iter()
+                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                                .collect();
+                            if let Some((_, vk)) = valid.get(idx as usize) {
+                                state.ai_vk = *vk;
                             }
                         }
                     } else if ctrl_id == ID_CMB_LANG {
@@ -709,11 +806,15 @@ unsafe extern "system" fn settings_wnd_proc(
             match ctrl_id {
                 // Modifier checkboxes toggled -> refresh combobox in real time
                 ID_CHK_PRI_CTRL | ID_CHK_PRI_ALT | ID_CHK_PRI_SHIFT | ID_CHK_PRI_WIN => unsafe {
-                    refresh_hotkey_combobox(hwnd, true);
+                    refresh_hotkey_combobox(hwnd, 0);
                     return 0;
                 },
                 ID_CHK_SEC_CTRL | ID_CHK_SEC_ALT | ID_CHK_SEC_SHIFT | ID_CHK_SEC_WIN => unsafe {
-                    refresh_hotkey_combobox(hwnd, false);
+                    refresh_hotkey_combobox(hwnd, 1);
+                    return 0;
+                },
+                ID_CHK_AI_CTRL | ID_CHK_AI_ALT | ID_CHK_AI_SHIFT | ID_CHK_AI_WIN => unsafe {
+                    refresh_hotkey_combobox(hwnd, 2);
                     return 0;
                 },
                 ID_BTN_RESTORE_DEFAULTS => unsafe {
@@ -795,6 +896,7 @@ unsafe fn update_ui_language(hwnd: HWND, is_en: bool) {
     set_text(ID_LBL_GRP_HOTKEYS, if is_en { " Hotkeys " } else { "\u{200F} מקשי קיצור (Hotkeys) " });
     set_text(ID_LBL_PRI_TITLE, if is_en { "Primary Hotkey (Convert text + Switch input layout):" } else { "\u{200F}מקש ראשי (המרה + החלפת שפת מקלדת):" });
     set_text(ID_LBL_SEC_TITLE, if is_en { "Secondary Hotkey (Convert text only, no layout switch):" } else { "\u{200F}מקש משני (המרה בלבד ללא החלפת מקלדת):" });
+    set_text(ID_LBL_AI_TITLE, if is_en { "Google AI Search Hotkey (AI Mode):" } else { "\u{200F}חיפוש גוגל במצב AI (Google AI Search):" });
     set_text(ID_LBL_GRP_OPTIONS, if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " });
     set_text(ID_CHK_AUTO_SWITCH, if is_en { "Switch keyboard layout automatically on conversion (Primary key)" } else { "\u{200F}החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)" });
     set_text(ID_CHK_AUTO_SELECT_LINE, if is_en { "Auto-select current line if no text is selected" } else { "\u{200F}סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט" });
@@ -851,6 +953,12 @@ unsafe fn handle_restore_defaults(hwnd: HWND) {
     set_check(ID_CHK_SEC_SHIFT, false);
     set_check(ID_CHK_SEC_WIN, false);
 
+    // AI Search: Shift + Win + G
+    set_check(ID_CHK_AI_CTRL, false);
+    set_check(ID_CHK_AI_ALT, false);
+    set_check(ID_CHK_AI_SHIFT, true);
+    set_check(ID_CHK_AI_WIN, true);
+
     // Options defaults
     set_check(ID_CHK_AUTO_SWITCH, true);
     set_check(ID_CHK_AUTO_SELECT_LINE, true);
@@ -861,16 +969,18 @@ unsafe fn handle_restore_defaults(hwnd: HWND) {
         unsafe {
             (*state_ptr).pri_vk = VK_F10;
             (*state_ptr).sec_vk = VK_F10;
+            (*state_ptr).ai_vk = 0x47; // 'G'
         }
     }
 
     unsafe {
         populate_combobox(hwnd, ID_CMB_PRI_KEY, 0, VK_F10);
         populate_combobox(hwnd, ID_CMB_SEC_KEY, MOD_CONTROL, VK_F10);
+        populate_combobox(hwnd, ID_CMB_AI_KEY, MOD_SHIFT | MOD_WIN, 0x47);
     }
 }
 
-unsafe fn get_modifiers(hwnd: HWND, is_primary: bool) -> u32 {
+unsafe fn get_modifiers(hwnd: HWND, target: u8) -> u32 {
     let is_checked = |id: usize| -> bool {
         unsafe {
             let ctrl = GetDlgItem(hwnd, id as i32);
@@ -879,7 +989,7 @@ unsafe fn get_modifiers(hwnd: HWND, is_primary: bool) -> u32 {
     };
 
     let mut mod_mask = 0;
-    if is_primary {
+    if target == 0 {
         if is_checked(ID_CHK_PRI_CTRL) {
             mod_mask |= MOD_CONTROL;
         }
@@ -892,7 +1002,7 @@ unsafe fn get_modifiers(hwnd: HWND, is_primary: bool) -> u32 {
         if is_checked(ID_CHK_PRI_WIN) {
             mod_mask |= MOD_WIN;
         }
-    } else {
+    } else if target == 1 {
         if is_checked(ID_CHK_SEC_CTRL) {
             mod_mask |= MOD_CONTROL;
         }
@@ -903,6 +1013,19 @@ unsafe fn get_modifiers(hwnd: HWND, is_primary: bool) -> u32 {
             mod_mask |= MOD_SHIFT;
         }
         if is_checked(ID_CHK_SEC_WIN) {
+            mod_mask |= MOD_WIN;
+        }
+    } else {
+        if is_checked(ID_CHK_AI_CTRL) {
+            mod_mask |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_AI_ALT) {
+            mod_mask |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_AI_SHIFT) {
+            mod_mask |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_AI_WIN) {
             mod_mask |= MOD_WIN;
         }
     }
@@ -1029,8 +1152,9 @@ unsafe fn save_and_close(hwnd: HWND) {
         }
     };
 
-    let pri_mod = unsafe { get_modifiers(hwnd, true) };
-    let sec_mod = unsafe { get_modifiers(hwnd, false) };
+    let pri_mod = unsafe { get_modifiers(hwnd, 0) };
+    let sec_mod = unsafe { get_modifiers(hwnd, 1) };
+    let ai_mod = unsafe { get_modifiers(hwnd, 2) };
 
     let get_combo_vk = |id: usize, modifiers: u32, default_vk: u32| -> u32 {
         unsafe {
@@ -1059,6 +1183,10 @@ unsafe fn save_and_close(hwnd: HWND) {
         hotkey_secondary: HotkeyConfig {
             modifiers: sec_mod,
             vk: get_combo_vk(ID_CMB_SEC_KEY, sec_mod, state.sec_vk),
+        },
+        hotkey_ai_search: HotkeyConfig {
+            modifiers: ai_mod,
+            vk: get_combo_vk(ID_CMB_AI_KEY, ai_mod, state.ai_vk),
         },
         auto_switch_layout: is_checked(ID_CHK_AUTO_SWITCH),
         auto_select_line: is_checked(ID_CHK_AUTO_SELECT_LINE),

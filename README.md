@@ -59,24 +59,28 @@ irm https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download
 **LangSwitch** is an ultra-fast, zero-polling, native utility written in pure **Rust**. Inspired by the classic **LangOver**, it instantly converts accidentally mistyped text between Hebrew and English with a single keypress (default: `F10`), with full support for both **Windows** (10/11) and **Linux** (**X11 & Wayland** across Linux Mint, Fedora, Arch Linux, Ubuntu, etc.).
 
 ### ✨ Features
-* **Instant Hotkey Conversion (`F10`)**:
-  * Converts highlighted text (word, sentence, paragraph, or full text).
-  * **Smart Auto-Line Selection**: If no text is selected, it automatically selects the current line (similar to mouse triple-click or `Home` + `Shift+End`) and converts it.
+* **Primary Hotkey (`F10`)**:
+  * Converts mistyped text **AND** automatically switches keyboard input layout directly!
+  * **Smart Auto-Line Selection**: If no text is selected, it automatically selects the current line (using `Home` + `Shift+End`) and converts it.
+* **Secondary Hotkey (`Ctrl+F10`)**:
+  * Converts mistyped text **ONLY** (without switching keyboard input layout).
+* **🔍 Google AI Search Hotkey (`Shift+Win+G`)**:
+  * Highlights or takes the current text and opens a new browser tab with Google's dedicated AI Mode search (`https://www.google.com/search?q={query}&udm=50`).
+* **Direct Layout Switching & Multi-Layout Support**:
+  * Directly switches to the target Hebrew or English layout in 0.001ms via native Win32 messages — no Alt-key menu bar pauses.
+  * Accurately distinguishes between duplicate variants (e.g., English US vs. UK or multiple Hebrew layouts) without random cycling.
 * **Smart Letter Case Normalization**:
   * Typing uppercase or mixed English (`YexY` or `YEXY`) automatically converts to lowercase Hebrew (`טקסט`).
   * Converting Hebrew (`אקסא`) to English produces clean lowercase (`text`).
-* **Keyboard Layout Auto-Switching**:
-  * Configurable option to switch input language automatically upon conversion (`Alt+Shift`).
-  * **Dedicated Secondary Hotkey (`Ctrl+F10`)**: Always converts text **and** toggles the layout regardless of the global setting.
 * **Windows Shortcut Conflict Prevention**:
   * In the Windows Settings GUI, dangerous combinations (such as `Win+Shift+S`, `Win+L`, `Alt+F4`, `Ctrl+C`) are dynamically filtered to prevent conflicting with Windows system shortcuts.
 * **Smart Installation with Conditional Admin Elevation**:
   * First-run setup automatically creates Start Menu shortcuts and registers LangSwitch in Windows "Installed Apps" / Control Panel (`--uninstall` supported).
-  * **Elevates as Admin only when strictly necessary** (e.g. copying into `Program Files`); otherwise installs cleanly without intrusive UAC prompts.
+  * Gracefully prompts to close any running instance before install or update.
 * **0.00% Idle CPU & Minimal RAM**:
   * Event-driven Win32 loop on Windows; lightweight CLI triggers or daemon on Linux. Zero polling loops.
-* **Full Bilingual Support**:
-  * Settings dialog and tray menus fully available in both **Hebrew** and **English**.
+* **Full Bilingual Support & Modern UI**:
+  * Clean, eye-friendly soft-slate settings interface and tray menus available in both **Hebrew** and **English**.
 
 ### 🐧 Linux Compatibility (X11 & Wayland)
 LangSwitch works out-of-the-box on all major Linux distributions:
@@ -119,24 +123,29 @@ langswitch --install
 **LangSwitch** הוא כלי קל משקל ומהיר כברק שנכתב ב-**Rust** טהור. בהשראת התוכנה האהובה **LangOver**, הוא ממיר באופן מיידי טקסט שנכתב בטעות בשפה ההפוכה (עברית ↔ אנגלית) בלחיצת מקש אחת (ברירת מחדל: `F10`), עם תמיכה מלאה ב-**Windows** (10/11) ו-**Linux** (תמיכה מלאה הן ב-**X11** והן ב-**Wayland** ב-Linux Mint, Fedora, Arch Linux, Ubuntu ועוד).
 
 ### ✨ תכונות עיקריות
-* **המרה מהירה בלחיצת מקש (`F10`)**:
-  * המרת טקסט מסומן (מילה, משפט, פסקה או הכל).
-  * **בחירת שורה אוטומטית חכמה**: אם אין טקסט מסומן, האפליקציה בוחרת אוטומטית את השורה עליה עומד הסמן וממירה אותה (בדומה ל-3 קליקים בעכבר או `Home` + `Shift+End`).
+* **המרה מהירה בלחיצת מקש ראשית (`F10`)**:
+  * ממיר את הטקסט שנכתב בטעות **ומחליף ישירות את שפת המקלדת** במהירות הבזק (0.001ms) ישירות דרך הודעות Win32 טבעיות – ללא השהיות תפריטים.
+  * **בחירת שורה אוטומטית חכמה**: אם אין טקסט מסומן, האפליקציה בוחרת אוטומטית את השורה עליה עומד הסמן וממירה אותה (באמצעות `Home` + `Shift+End`).
+* **מקש קיצור משני ייעודי (`Ctrl+F10`)**:
+  * ממיר את הטקסט **בלבד** (ללא החלפת שפת המקלדת).
+* **🔍 חיפוש ישיר ב-Google AI Overviews (`Shift+Win+G`)**:
+  * מעתיק את הטקסט המסומן (או השורה הנוכחית) ופותח מיד טאב חדש בדפדפן המוגדר כברירת מחדל עם שאילתת חיפוש במצב ה-AI הייעודי של גוגל (`https://www.google.com/search?q={שאילתה}&udm=50`).
+* **החלפת שפה ישירה ותמיכה בריבוי פריסות מקלדת**:
+  * מזהה במדויק ופונה ישירות לפריסה המבוקשת (עברית או אנגלית) ללא דפדוף עיוור, גם אם מותקנות מספר פריסות אנגלית (למשל US ו-UK) או מספר פריסות עברית.
 * **טיפול חכם באותיות גדולות (Case Normalization)**:
   * הקלדת אנגלית באותיות גדולות (`YexY` או `YEXY`) מומרת תחילה ל-lowercase (`yexy`) ואז לעברית (`טקסט`).
   * המרה מעברית (`אקסא`) לאנגלית מייצרת תמיד אותיות קטנות (`text`).
-* **החלפת שפת מקלדת אוטומטית**:
-  * אפשרות בהגדרות להחלפת שפת הקלט אוטומטית בעת המרה (`Alt+Shift`).
-  * **מקש קיצור משני ייעודי (`Ctrl+F10`)**: ממיר את הטקסט **וגם מחליף את שפת המקלדת תמיד**, גם אם ההגדרה האוטומטית כבויה.
 * **מניעת התנגשויות קיצורים ב-Windows**:
   * תפריט בחירת המקשים מסנן באופן דינמי קיצורי מערכת של Windows (כגון `Win+Shift+S` ל-Snipping Tool, `Win+L`, `Alt+F4` ועוד).
+* **ממשק הגדרות מודרני בעיצוב נעים ורך**:
+  * חלון הגדרות מודרני בצבעוניות Slate אלגנטית, מותאם לעיניים ומאפשר התאמה מלאה של כל שלושת קיצורי הדרך.
 * **התקנה חכמה ובקשת הרשאות מנהל רק במידת הצורך**:
   * בהפעלה ראשונה מוצעת התקנה מסודרת, יצירת קיצור דרך בתפריט התחל ורישום מלא ב"אפליקציות מותקנות" / לוח הבקרה של Windows (`--uninstall`).
   * **בקשת הרשאות מנהל (UAC Administrator) מתבצעת רק אם יש צורך אמיתי** (כגון העתקה ל-`Program Files`), ללא חלונות אישור מיותרים.
 * **0.00% ניצול מעבד וצריכת זיכרון אפסית**:
   * מבוסס אירועים (Event-driven) ישירות מול מערכת ההפעלה, ללא לולאות polling ברקע.
 * **ממשק דו-לשוני מלא**:
-  * חלון ההגדרות ותפריט מגש המערכת (Tray) זמינים בעברית ובאנגלית.
+  * חלון ההגדרות, חלון הפתיחה ותפריט מגש המערכת (Tray) זמינים בעברית ובאנגלית.
 
 ### 🐧 תמיכה בלינוקס (X11 ו-Wayland)
 LangSwitch פועלת באופן חלק בכל הפצות הלינוקס הפופולריות:

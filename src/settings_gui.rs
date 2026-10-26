@@ -1,6 +1,5 @@
 use crate::config::{
-    AppConfig, HotkeyConfig, VK_F1, VK_F10, VK_F11, VK_F12, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6,
-    VK_F7, VK_F8, VK_F9,
+    is_windows_conflict, ALL_KEYBOARD_KEYS, AppConfig, HotkeyConfig, VK_F10,
 };
 use crate::updater::{self, UpdateCheckResult, CURRENT_VERSION};
 use std::ptr;
@@ -52,37 +51,10 @@ const ID_BTN_CHECK_UPDATE: usize = 115;
 const ID_BTN_SAVE: usize = 116;
 const ID_BTN_CANCEL: usize = 117;
 
-const AVAILABLE_KEYS: &[(&str, u32)] = &[
-    ("F10 (מומלץ)", VK_F10),
-    ("F1", VK_F1),
-    ("F2", VK_F2),
-    ("F3", VK_F3),
-    ("F4", VK_F4),
-    ("F5", VK_F5),
-    ("F6", VK_F6),
-    ("F7", VK_F7),
-    ("F8", VK_F8),
-    ("F9", VK_F9),
-    ("F11", VK_F11),
-    ("F12", VK_F12),
-    ("Space", 0x20),
-    ("Insert", 0x2D),
-    ("Pause/Break", 0x13),
-    ("Q", 0x51),
-    ("W", 0x57),
-    ("E", 0x45),
-    ("R", 0x52),
-    ("T", 0x54),
-    ("Y", 0x59),
-    ("Z", 0x5A),
-    ("X", 0x58),
-    ("C", 0x43),
-    ("V", 0x56),
-];
-
 const CB_ADDSTRING: u32 = 0x0143;
 const CB_SETCURSEL: u32 = 0x014E;
 const CB_GETCURSEL: u32 = 0x0147;
+const CB_RESETCONTENT: u32 = 0x014B;
 
 fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -122,8 +94,8 @@ pub fn show_settings_window(
 
         RegisterClassExW(&wnd_class);
 
-        let win_width = 540;
-        let win_height = 510;
+        let win_width = 600;
+        let win_height = 530;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
@@ -172,6 +144,8 @@ pub fn show_settings_window(
         let state = Box::new(SettingsState {
             on_save,
             hfont,
+            pri_vk: current_config.hotkey_primary.vk,
+            sec_vk: current_config.hotkey_secondary.vk,
         });
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
 
@@ -191,6 +165,8 @@ pub fn show_settings_window(
 struct SettingsState {
     on_save: Box<dyn Fn(AppConfig) + Send + 'static>,
     hfont: HFONT,
+    pri_vk: u32,
+    sec_vk: u32,
 }
 
 unsafe fn init_controls(
@@ -230,7 +206,7 @@ unsafe fn init_controls(
         BS_GROUPBOX as u32,
         15,
         10,
-        495,
+        555,
         170,
         0,
     );
@@ -242,7 +218,7 @@ unsafe fn init_controls(
         0,
         30,
         35,
-        280,
+        300,
         20,
         0,
     );
@@ -253,7 +229,7 @@ unsafe fn init_controls(
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
         60,
-        50,
+        55,
         20,
         ID_CHK_PRI_CTRL,
     );
@@ -261,7 +237,7 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "Alt",
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        85,
+        90,
         60,
         50,
         20,
@@ -271,9 +247,9 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "Shift",
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        140,
+        145,
         60,
-        55,
+        58,
         20,
         ID_CHK_PRI_SHIFT,
     );
@@ -281,20 +257,20 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "Win",
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        200,
+        208,
         60,
-        50,
+        52,
         20,
         ID_CHK_PRI_WIN,
     );
-    let cmb_pri_key = create_ctrl(
+    let _cmb_pri_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP,
-        260,
+        275,
         58,
-        140,
-        250,
+        180,
+        300,
         ID_CMB_PRI_KEY,
     );
 
@@ -316,7 +292,7 @@ unsafe fn init_controls(
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
         120,
-        50,
+        55,
         20,
         ID_CHK_SEC_CTRL,
     );
@@ -324,7 +300,7 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "Alt",
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        85,
+        90,
         120,
         50,
         20,
@@ -334,9 +310,9 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "Shift",
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        140,
+        145,
         120,
-        55,
+        58,
         20,
         ID_CHK_SEC_SHIFT,
     );
@@ -344,48 +320,22 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "Win",
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        200,
+        208,
         120,
-        50,
+        52,
         20,
         ID_CHK_SEC_WIN,
     );
-    let cmb_sec_key = create_ctrl(
+    let _cmb_sec_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP,
-        260,
+        275,
         118,
-        140,
-        250,
+        180,
+        300,
         ID_CMB_SEC_KEY,
     );
-
-    // Populate comboboxes
-    for (name, _) in AVAILABLE_KEYS {
-        let wname = to_wide(name);
-        unsafe {
-            SendMessageW(cmb_pri_key, CB_ADDSTRING, 0, wname.as_ptr() as LPARAM);
-            SendMessageW(cmb_sec_key, CB_ADDSTRING, 0, wname.as_ptr() as LPARAM);
-        }
-    }
-
-    // Set combo selections
-    let pri_idx = AVAILABLE_KEYS
-        .iter()
-        .position(|(_, vk)| *vk == config.hotkey_primary.vk)
-        .unwrap_or(0);
-    unsafe {
-        SendMessageW(cmb_pri_key, CB_SETCURSEL, pri_idx, 0);
-    }
-
-    let sec_idx = AVAILABLE_KEYS
-        .iter()
-        .position(|(_, vk)| *vk == config.hotkey_secondary.vk)
-        .unwrap_or(0);
-    unsafe {
-        SendMessageW(cmb_sec_key, CB_SETCURSEL, sec_idx, 0);
-    }
 
     // Set primary modifier checkboxes
     unsafe {
@@ -417,6 +367,22 @@ unsafe fn init_controls(
         }
     }
 
+    // Populate comboboxes with conflict detection
+    unsafe {
+        populate_combobox(
+            hwnd,
+            ID_CMB_PRI_KEY,
+            config.hotkey_primary.modifiers,
+            config.hotkey_primary.vk,
+        );
+        populate_combobox(
+            hwnd,
+            ID_CMB_SEC_KEY,
+            config.hotkey_secondary.modifiers,
+            config.hotkey_secondary.vk,
+        );
+    }
+
     // --- Group 2: Behavior Options ---
     create_ctrl(
         WC_BUTTONW,
@@ -424,7 +390,7 @@ unsafe fn init_controls(
         BS_GROUPBOX as u32,
         15,
         190,
-        495,
+        555,
         140,
         0,
     );
@@ -435,7 +401,7 @@ unsafe fn init_controls(
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
         215,
-        460,
+        520,
         22,
         ID_CHK_AUTO_SWITCH,
     );
@@ -451,7 +417,7 @@ unsafe fn init_controls(
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
         242,
-        460,
+        520,
         22,
         ID_CHK_AUTO_SELECT_LINE,
     );
@@ -463,11 +429,11 @@ unsafe fn init_controls(
 
     let chk_start = create_ctrl(
         WC_BUTTONW,
-        "הפעל אוטומטית עם כניסה ל-Windows",
+        "הפעל אוטומטית עם כניסה למערכת Windows",
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
         269,
-        460,
+        520,
         22,
         ID_CHK_START_WINDOWS,
     );
@@ -483,7 +449,7 @@ unsafe fn init_controls(
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
         296,
-        460,
+        520,
         22,
         ID_CHK_RESTORE_CLIPBOARD,
     );
@@ -500,21 +466,21 @@ unsafe fn init_controls(
         BS_GROUPBOX as u32,
         15,
         340,
-        495,
-        65,
+        555,
+        68,
         0,
     );
 
     let ver_label = format!("גרסה נוכחית: v{}", CURRENT_VERSION);
-    create_ctrl(WC_STATICW, &ver_label, 0, 30, 368, 180, 20, 0);
+    create_ctrl(WC_STATICW, &ver_label, 0, 30, 368, 200, 20, 0);
 
     create_ctrl(
         WC_BUTTONW,
         "בדוק עדכונים מ-GitHub",
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
-        320,
+        360,
         363,
-        170,
+        185,
         28,
         ID_BTN_CHECK_UPDATE,
     );
@@ -524,10 +490,10 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "שמור והחל",
         BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
-        290,
-        425,
-        110,
-        32,
+        320,
+        440,
+        120,
+        34,
         ID_BTN_SAVE,
     );
 
@@ -535,12 +501,103 @@ unsafe fn init_controls(
         WC_BUTTONW,
         "ביטול",
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
-        410,
-        425,
+        450,
+        440,
         100,
-        32,
+        34,
         ID_BTN_CANCEL,
     );
+}
+
+/// Populates a combobox with all keys that do NOT conflict with Windows shortcuts for the given modifier set.
+unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_vk: u32) {
+    let cmb = unsafe { GetDlgItem(hwnd, cmb_id as i32) };
+    unsafe {
+        SendMessageW(cmb, CB_RESETCONTENT, 0, 0);
+    }
+
+    let valid_keys: Vec<(&str, u32)> = ALL_KEYBOARD_KEYS
+        .iter()
+        .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+        .copied()
+        .collect();
+
+    let mut selected_idx = 0;
+    for (i, (name, vk)) in valid_keys.iter().enumerate() {
+        let wname = to_wide(name);
+        unsafe {
+            SendMessageW(cmb, CB_ADDSTRING, 0, wname.as_ptr() as LPARAM);
+        }
+        if *vk == desired_vk {
+            selected_idx = i;
+        }
+    }
+
+    unsafe {
+        SendMessageW(cmb, CB_SETCURSEL, selected_idx, 0);
+    }
+}
+
+/// Reads the modifier checkboxes and updates the combobox filtering in real-time.
+unsafe fn refresh_hotkey_combobox(hwnd: HWND, is_primary: bool) {
+    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+
+    let is_checked = |id: usize| -> bool {
+        unsafe {
+            let ctrl = GetDlgItem(hwnd, id as i32);
+            SendMessageW(ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED
+        }
+    };
+
+    if is_primary {
+        let mut modifiers = 0;
+        if is_checked(ID_CHK_PRI_CTRL) {
+            modifiers |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_PRI_ALT) {
+            modifiers |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_PRI_SHIFT) {
+            modifiers |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_PRI_WIN) {
+            modifiers |= MOD_WIN;
+        }
+
+        let current_vk = if !state_ptr.is_null() {
+            unsafe { (*state_ptr).pri_vk }
+        } else {
+            VK_F10
+        };
+
+        unsafe {
+            populate_combobox(hwnd, ID_CMB_PRI_KEY, modifiers, current_vk);
+        }
+    } else {
+        let mut modifiers = 0;
+        if is_checked(ID_CHK_SEC_CTRL) {
+            modifiers |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_SEC_ALT) {
+            modifiers |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_SEC_SHIFT) {
+            modifiers |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_SEC_WIN) {
+            modifiers |= MOD_WIN;
+        }
+
+        let current_vk = if !state_ptr.is_null() {
+            unsafe { (*state_ptr).sec_vk }
+        } else {
+            VK_F10
+        };
+
+        unsafe {
+            populate_combobox(hwnd, ID_CMB_SEC_KEY, modifiers, current_vk);
+        }
+    }
 }
 
 unsafe extern "system" fn settings_wnd_proc(
@@ -552,7 +609,51 @@ unsafe extern "system" fn settings_wnd_proc(
     match msg {
         WM_COMMAND => {
             let ctrl_id = (wparam & 0xFFFF) as usize;
+            let notif = ((wparam >> 16) & 0xFFFF) as u32;
+
+            // Handle combobox selection change to keep state updated
+            if notif == 1 {
+                // CBN_SELCHANGE
+                let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+                if !state_ptr.is_null() {
+                    let state = unsafe { &mut *state_ptr };
+                    if ctrl_id == ID_CMB_PRI_KEY {
+                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_PRI_KEY as i32) };
+                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize };
+                        let modifiers = unsafe { get_modifiers(hwnd, true) };
+                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                            .iter()
+                            .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                            .collect();
+                        if let Some((_, vk)) = valid.get(idx) {
+                            state.pri_vk = *vk;
+                        }
+                    } else if ctrl_id == ID_CMB_SEC_KEY {
+                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_SEC_KEY as i32) };
+                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize };
+                        let modifiers = unsafe { get_modifiers(hwnd, false) };
+                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                            .iter()
+                            .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                            .collect();
+                        if let Some((_, vk)) = valid.get(idx) {
+                            state.sec_vk = *vk;
+                        }
+                    }
+                }
+            }
+
             match ctrl_id {
+                // Primary modifier checkboxes toggled -> refresh primary combobox
+                ID_CHK_PRI_CTRL | ID_CHK_PRI_ALT | ID_CHK_PRI_SHIFT | ID_CHK_PRI_WIN => unsafe {
+                    refresh_hotkey_combobox(hwnd, true);
+                    return 0;
+                },
+                // Secondary modifier checkboxes toggled -> refresh secondary combobox
+                ID_CHK_SEC_CTRL | ID_CHK_SEC_ALT | ID_CHK_SEC_SHIFT | ID_CHK_SEC_WIN => unsafe {
+                    refresh_hotkey_combobox(hwnd, false);
+                    return 0;
+                },
                 ID_BTN_CANCEL => unsafe {
                     DestroyWindow(hwnd);
                     return 0;
@@ -586,6 +687,45 @@ unsafe extern "system" fn settings_wnd_proc(
         _ => {}
     }
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+unsafe fn get_modifiers(hwnd: HWND, is_primary: bool) -> u32 {
+    let is_checked = |id: usize| -> bool {
+        unsafe {
+            let ctrl = GetDlgItem(hwnd, id as i32);
+            SendMessageW(ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED
+        }
+    };
+
+    let mut mod_mask = 0;
+    if is_primary {
+        if is_checked(ID_CHK_PRI_CTRL) {
+            mod_mask |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_PRI_ALT) {
+            mod_mask |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_PRI_SHIFT) {
+            mod_mask |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_PRI_WIN) {
+            mod_mask |= MOD_WIN;
+        }
+    } else {
+        if is_checked(ID_CHK_SEC_CTRL) {
+            mod_mask |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_SEC_ALT) {
+            mod_mask |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_SEC_SHIFT) {
+            mod_mask |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_SEC_WIN) {
+            mod_mask |= MOD_WIN;
+        }
+    }
+    mod_mask
 }
 
 unsafe fn trigger_check_update(hwnd: HWND) {
@@ -685,50 +825,29 @@ unsafe fn save_and_close(hwnd: HWND) {
         }
     };
 
-    let get_combo_vk = |id: usize| -> u32 {
+    let pri_mod = unsafe { get_modifiers(hwnd, true) };
+    let sec_mod = unsafe { get_modifiers(hwnd, false) };
+
+    let get_combo_vk = |id: usize, modifiers: u32, default_vk: u32| -> u32 {
         unsafe {
             let ctrl = GetDlgItem(hwnd, id as i32);
             let idx = SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize;
-            AVAILABLE_KEYS.get(idx).map(|(_, vk)| *vk).unwrap_or(VK_F10)
+            let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                .iter()
+                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                .collect();
+            valid.get(idx).map(|(_, vk)| *vk).unwrap_or(default_vk)
         }
     };
-
-    let mut pri_mod = 0;
-    if is_checked(ID_CHK_PRI_CTRL) {
-        pri_mod |= MOD_CONTROL;
-    }
-    if is_checked(ID_CHK_PRI_ALT) {
-        pri_mod |= MOD_ALT;
-    }
-    if is_checked(ID_CHK_PRI_SHIFT) {
-        pri_mod |= MOD_SHIFT;
-    }
-    if is_checked(ID_CHK_PRI_WIN) {
-        pri_mod |= MOD_WIN;
-    }
-
-    let mut sec_mod = 0;
-    if is_checked(ID_CHK_SEC_CTRL) {
-        sec_mod |= MOD_CONTROL;
-    }
-    if is_checked(ID_CHK_SEC_ALT) {
-        sec_mod |= MOD_ALT;
-    }
-    if is_checked(ID_CHK_SEC_SHIFT) {
-        sec_mod |= MOD_SHIFT;
-    }
-    if is_checked(ID_CHK_SEC_WIN) {
-        sec_mod |= MOD_WIN;
-    }
 
     let updated_config = AppConfig {
         hotkey_primary: HotkeyConfig {
             modifiers: pri_mod,
-            vk: get_combo_vk(ID_CMB_PRI_KEY),
+            vk: get_combo_vk(ID_CMB_PRI_KEY, pri_mod, state.pri_vk),
         },
         hotkey_secondary: HotkeyConfig {
             modifiers: sec_mod,
-            vk: get_combo_vk(ID_CMB_SEC_KEY),
+            vk: get_combo_vk(ID_CMB_SEC_KEY, sec_mod, state.sec_vk),
         },
         auto_switch_layout: is_checked(ID_CHK_AUTO_SWITCH),
         auto_select_line: is_checked(ID_CHK_AUTO_SELECT_LINE),

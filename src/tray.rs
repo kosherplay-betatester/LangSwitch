@@ -182,7 +182,12 @@ pub fn run_tray_app(initial_config: AppConfig) {
             ptr::null(),
         );
 
-        let icon_active = create_tray_icon(false);
+        let app_icon = windows_sys::Win32::UI::WindowsAndMessaging::LoadIconW(hinstance, 1 as *const u16);
+        let icon_active = if !app_icon.is_null() {
+            app_icon
+        } else {
+            create_tray_icon(false)
+        };
         let icon_paused = create_tray_icon(true);
 
         let mut nid: NOTIFYICONDATAW = std::mem::zeroed();

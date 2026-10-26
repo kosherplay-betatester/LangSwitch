@@ -36,6 +36,7 @@ const ID_LBL_GRP_HOTKEYS: usize = 90;
 const ID_LBL_PRI_TITLE: usize = 91;
 const ID_LBL_SEC_TITLE: usize = 92;
 const ID_LBL_AI_TITLE: usize = 93;
+const ID_LBL_TRANS_TITLE: usize = 98;
 const ID_LBL_GRP_OPTIONS: usize = 94;
 const ID_LBL_GRP_UPDATES: usize = 95;
 const ID_LBL_VERSION: usize = 96;
@@ -69,6 +70,12 @@ const ID_CHK_AI_ALT: usize = 121;
 const ID_CHK_AI_SHIFT: usize = 122;
 const ID_CHK_AI_WIN: usize = 123;
 const ID_CMB_AI_KEY: usize = 124;
+
+const ID_CHK_TRANS_CTRL: usize = 125;
+const ID_CHK_TRANS_ALT: usize = 126;
+const ID_CHK_TRANS_SHIFT: usize = 127;
+const ID_CHK_TRANS_WIN: usize = 128;
+const ID_CMB_TRANS_KEY: usize = 129;
 
 const CB_ADDSTRING: u32 = 0x0143;
 const CB_SETCURSEL: u32 = 0x014E;
@@ -116,7 +123,7 @@ pub fn show_settings_window(
         RegisterClassExW(&wnd_class);
 
         let win_width = 620;
-        let win_height = 625;
+        let win_height = 680;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
@@ -174,6 +181,7 @@ pub fn show_settings_window(
             pri_vk: current_config.hotkey_primary.vk,
             sec_vk: current_config.hotkey_secondary.vk,
             ai_vk: current_config.hotkey_ai_search.vk,
+            trans_vk: current_config.hotkey_translate.vk,
             is_english: is_en,
             last_welcome_version: current_config.last_welcome_version.clone(),
         });
@@ -199,6 +207,7 @@ struct SettingsState {
     pri_vk: u32,
     sec_vk: u32,
     ai_vk: u32,
+    trans_vk: u32,
     is_english: bool,
     last_welcome_version: Option<String>,
 }
@@ -269,7 +278,7 @@ unsafe fn init_controls(
         15,
         36,
         575,
-        225,
+        280,
         ID_LBL_GRP_HOTKEYS,
     );
 
@@ -369,6 +378,38 @@ unsafe fn init_controls(
         ID_CMB_AI_KEY,
     );
 
+    // 4. Google Quick Translation hotkey
+    create_ctrl(
+        WC_STATICW,
+        if is_en {
+            "Quick Translation Hotkey (Hebrew ↔ English via Google):"
+        } else {
+            "\u{200F}תרגום מהיר בגוגל (Google Quick Translate):"
+        },
+        0,
+        30,
+        226,
+        350,
+        20,
+        ID_LBL_TRANS_TITLE,
+    );
+
+    let chk_trans_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 248, 55, 20, ID_CHK_TRANS_CTRL);
+    let chk_trans_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 248, 50, 20, ID_CHK_TRANS_ALT);
+    let chk_trans_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 248, 58, 20, ID_CHK_TRANS_SHIFT);
+    let chk_trans_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 248, 52, 20, ID_CHK_TRANS_WIN);
+
+    let _cmb_trans_key = create_ctrl(
+        WC_COMBOBOXW,
+        "",
+        CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
+        275,
+        246,
+        290,
+        380,
+        ID_CMB_TRANS_KEY,
+    );
+
     // Set primary modifier checkboxes
     unsafe {
         if config.hotkey_primary.modifiers & MOD_CONTROL != 0 {
@@ -411,6 +452,20 @@ unsafe fn init_controls(
         if config.hotkey_ai_search.modifiers & MOD_WIN != 0 {
             SendMessageW(chk_ai_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
         }
+
+        // Set translation modifier checkboxes
+        if config.hotkey_translate.modifiers & MOD_CONTROL != 0 {
+            SendMessageW(chk_trans_ctrl, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
+        if config.hotkey_translate.modifiers & MOD_ALT != 0 {
+            SendMessageW(chk_trans_alt, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
+        if config.hotkey_translate.modifiers & MOD_SHIFT != 0 {
+            SendMessageW(chk_trans_shift, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
+        if config.hotkey_translate.modifiers & MOD_WIN != 0 {
+            SendMessageW(chk_trans_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
+        }
     }
 
     // Populate comboboxes
@@ -433,6 +488,12 @@ unsafe fn init_controls(
             config.hotkey_ai_search.modifiers,
             config.hotkey_ai_search.vk,
         );
+        populate_combobox(
+            hwnd,
+            ID_CMB_TRANS_KEY,
+            config.hotkey_translate.modifiers,
+            config.hotkey_translate.vk,
+        );
     }
 
     // --- Group 2: Behavior Options ---
@@ -441,7 +502,7 @@ unsafe fn init_controls(
         if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " },
         BS_GROUPBOX as u32,
         15,
-        270,
+        325,
         575,
         145,
         ID_LBL_GRP_OPTIONS,
@@ -456,7 +517,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        295,
+        350,
         540,
         22,
         ID_CHK_AUTO_SWITCH,
@@ -476,7 +537,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        322,
+        377,
         540,
         22,
         ID_CHK_AUTO_SELECT_LINE,
@@ -496,7 +557,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        349,
+        404,
         540,
         22,
         ID_CHK_START_WINDOWS,
@@ -516,7 +577,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        376,
+        431,
         540,
         22,
         ID_CHK_RESTORE_CLIPBOARD,
@@ -533,7 +594,7 @@ unsafe fn init_controls(
         if is_en { " Updates & Info " } else { "\u{200F} עדכונים ומידע " },
         BS_GROUPBOX as u32,
         15,
-        425,
+        480,
         575,
         70,
         ID_LBL_GRP_UPDATES,
@@ -544,14 +605,14 @@ unsafe fn init_controls(
     } else {
         format!("\u{200F}גרסה נוכחית: v{}", CURRENT_VERSION)
     };
-    create_ctrl(WC_STATICW, &ver_label, 0, 30, 455, 230, 20, ID_LBL_VERSION);
+    create_ctrl(WC_STATICW, &ver_label, 0, 30, 510, 230, 20, ID_LBL_VERSION);
 
     create_ctrl(
         WC_BUTTONW,
         if is_en { "Check for Updates" } else { "בדוק עדכונים מ-GitHub" },
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
         390,
-        448,
+        503,
         185,
         30,
         ID_BTN_CHECK_UPDATE,
@@ -563,7 +624,7 @@ unsafe fn init_controls(
         if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" },
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
         15,
-        515,
+        570,
         160,
         34,
         ID_BTN_RESTORE_DEFAULTS,
@@ -574,7 +635,7 @@ unsafe fn init_controls(
         if is_en { "Save & Apply" } else { "שמור והחל" },
         BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
         330,
-        515,
+        570,
         130,
         34,
         ID_BTN_SAVE,
@@ -585,7 +646,7 @@ unsafe fn init_controls(
         if is_en { "Cancel" } else { "ביטול" },
         BS_PUSHBUTTON as u32 | WS_TABSTOP,
         470,
-        515,
+        570,
         120,
         34,
         ID_BTN_CANCEL,
@@ -634,7 +695,7 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
         UpdateWindow(cmb);
     }
 
-    // Keep state updated so state.pri_vk / state.sec_vk / state.ai_vk always reflects the actual selected key!
+    // Keep state updated so state.pri_vk / state.sec_vk / state.ai_vk / state.trans_vk always reflects the actual selected key!
     if !state_ptr.is_null() {
         let state = unsafe { &mut *state_ptr };
         if let Some((_, vk)) = valid_keys.get(selected_idx) {
@@ -644,13 +705,15 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
                 state.sec_vk = *vk;
             } else if cmb_id == ID_CMB_AI_KEY {
                 state.ai_vk = *vk;
+            } else if cmb_id == ID_CMB_TRANS_KEY {
+                state.trans_vk = *vk;
             }
         }
     }
 }
 
 /// Reads the modifier checkboxes and updates the combobox filtering in real-time.
-/// target: 0 = Primary, 1 = Secondary, 2 = AI Search
+/// target: 0 = Primary, 1 = Secondary, 2 = AI Search, 3 = Translation
 unsafe fn refresh_hotkey_combobox(hwnd: HWND, target: u8) {
     let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
 
@@ -709,7 +772,7 @@ unsafe fn refresh_hotkey_combobox(hwnd: HWND, target: u8) {
         unsafe {
             populate_combobox(hwnd, ID_CMB_SEC_KEY, modifiers, current_vk);
         }
-    } else {
+    } else if target == 2 {
         let mut modifiers = 0;
         if is_checked(ID_CHK_AI_CTRL) {
             modifiers |= MOD_CONTROL;
@@ -732,6 +795,30 @@ unsafe fn refresh_hotkey_combobox(hwnd: HWND, target: u8) {
 
         unsafe {
             populate_combobox(hwnd, ID_CMB_AI_KEY, modifiers, current_vk);
+        }
+    } else {
+        let mut modifiers = 0;
+        if is_checked(ID_CHK_TRANS_CTRL) {
+            modifiers |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_TRANS_ALT) {
+            modifiers |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_TRANS_SHIFT) {
+            modifiers |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_TRANS_WIN) {
+            modifiers |= MOD_WIN;
+        }
+
+        let current_vk = if !state_ptr.is_null() {
+            unsafe { (*state_ptr).trans_vk }
+        } else {
+            0x54 // 'T'
+        };
+
+        unsafe {
+            populate_combobox(hwnd, ID_CMB_TRANS_KEY, modifiers, current_vk);
         }
     }
 }
@@ -792,6 +879,19 @@ unsafe extern "system" fn settings_wnd_proc(
                                 state.ai_vk = *vk;
                             }
                         }
+                    } else if ctrl_id == ID_CMB_TRANS_KEY {
+                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_TRANS_KEY as i32) };
+                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                        if idx >= 0 {
+                            let modifiers = unsafe { get_modifiers(hwnd, 3) };
+                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                                .iter()
+                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                                .collect();
+                            if let Some((_, vk)) = valid.get(idx as usize) {
+                                state.trans_vk = *vk;
+                            }
+                        }
                     } else if ctrl_id == ID_CMB_LANG {
                         let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_LANG as i32) };
                         let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize };
@@ -815,6 +915,10 @@ unsafe extern "system" fn settings_wnd_proc(
                 },
                 ID_CHK_AI_CTRL | ID_CHK_AI_ALT | ID_CHK_AI_SHIFT | ID_CHK_AI_WIN => unsafe {
                     refresh_hotkey_combobox(hwnd, 2);
+                    return 0;
+                },
+                ID_CHK_TRANS_CTRL | ID_CHK_TRANS_ALT | ID_CHK_TRANS_SHIFT | ID_CHK_TRANS_WIN => unsafe {
+                    refresh_hotkey_combobox(hwnd, 3);
                     return 0;
                 },
                 ID_BTN_RESTORE_DEFAULTS => unsafe {
@@ -897,6 +1001,7 @@ unsafe fn update_ui_language(hwnd: HWND, is_en: bool) {
     set_text(ID_LBL_PRI_TITLE, if is_en { "Primary Hotkey (Convert text + Switch input layout):" } else { "\u{200F}מקש ראשי (המרה + החלפת שפת מקלדת):" });
     set_text(ID_LBL_SEC_TITLE, if is_en { "Secondary Hotkey (Convert text only, no layout switch):" } else { "\u{200F}מקש משני (המרה בלבד ללא החלפת מקלדת):" });
     set_text(ID_LBL_AI_TITLE, if is_en { "Google AI Search Hotkey (AI Mode):" } else { "\u{200F}חיפוש גוגל במצב AI (Google AI Search):" });
+    set_text(ID_LBL_TRANS_TITLE, if is_en { "Quick Translation Hotkey (Hebrew ↔ English via Google):" } else { "\u{200F}תרגום מהיר בגוגל (Google Quick Translate):" });
     set_text(ID_LBL_GRP_OPTIONS, if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " });
     set_text(ID_CHK_AUTO_SWITCH, if is_en { "Switch keyboard layout automatically on conversion (Primary key)" } else { "\u{200F}החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)" });
     set_text(ID_CHK_AUTO_SELECT_LINE, if is_en { "Auto-select current line if no text is selected" } else { "\u{200F}סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט" });
@@ -959,6 +1064,12 @@ unsafe fn handle_restore_defaults(hwnd: HWND) {
     set_check(ID_CHK_AI_SHIFT, true);
     set_check(ID_CHK_AI_WIN, true);
 
+    // Translation: Ctrl + Shift + T
+    set_check(ID_CHK_TRANS_CTRL, true);
+    set_check(ID_CHK_TRANS_ALT, false);
+    set_check(ID_CHK_TRANS_SHIFT, true);
+    set_check(ID_CHK_TRANS_WIN, false);
+
     // Options defaults
     set_check(ID_CHK_AUTO_SWITCH, true);
     set_check(ID_CHK_AUTO_SELECT_LINE, true);
@@ -970,6 +1081,7 @@ unsafe fn handle_restore_defaults(hwnd: HWND) {
             (*state_ptr).pri_vk = VK_F10;
             (*state_ptr).sec_vk = VK_F10;
             (*state_ptr).ai_vk = 0x47; // 'G'
+            (*state_ptr).trans_vk = 0x54; // 'T'
         }
     }
 
@@ -977,6 +1089,7 @@ unsafe fn handle_restore_defaults(hwnd: HWND) {
         populate_combobox(hwnd, ID_CMB_PRI_KEY, 0, VK_F10);
         populate_combobox(hwnd, ID_CMB_SEC_KEY, MOD_CONTROL, VK_F10);
         populate_combobox(hwnd, ID_CMB_AI_KEY, MOD_SHIFT | MOD_WIN, 0x47);
+        populate_combobox(hwnd, ID_CMB_TRANS_KEY, MOD_CONTROL | MOD_SHIFT, 0x54);
     }
 }
 
@@ -1015,7 +1128,7 @@ unsafe fn get_modifiers(hwnd: HWND, target: u8) -> u32 {
         if is_checked(ID_CHK_SEC_WIN) {
             mod_mask |= MOD_WIN;
         }
-    } else {
+    } else if target == 2 {
         if is_checked(ID_CHK_AI_CTRL) {
             mod_mask |= MOD_CONTROL;
         }
@@ -1026,6 +1139,19 @@ unsafe fn get_modifiers(hwnd: HWND, target: u8) -> u32 {
             mod_mask |= MOD_SHIFT;
         }
         if is_checked(ID_CHK_AI_WIN) {
+            mod_mask |= MOD_WIN;
+        }
+    } else {
+        if is_checked(ID_CHK_TRANS_CTRL) {
+            mod_mask |= MOD_CONTROL;
+        }
+        if is_checked(ID_CHK_TRANS_ALT) {
+            mod_mask |= MOD_ALT;
+        }
+        if is_checked(ID_CHK_TRANS_SHIFT) {
+            mod_mask |= MOD_SHIFT;
+        }
+        if is_checked(ID_CHK_TRANS_WIN) {
             mod_mask |= MOD_WIN;
         }
     }
@@ -1155,6 +1281,7 @@ unsafe fn save_and_close(hwnd: HWND) {
     let pri_mod = unsafe { get_modifiers(hwnd, 0) };
     let sec_mod = unsafe { get_modifiers(hwnd, 1) };
     let ai_mod = unsafe { get_modifiers(hwnd, 2) };
+    let trans_mod = unsafe { get_modifiers(hwnd, 3) };
 
     let get_combo_vk = |id: usize, modifiers: u32, default_vk: u32| -> u32 {
         unsafe {
@@ -1187,6 +1314,10 @@ unsafe fn save_and_close(hwnd: HWND) {
         hotkey_ai_search: HotkeyConfig {
             modifiers: ai_mod,
             vk: get_combo_vk(ID_CMB_AI_KEY, ai_mod, state.ai_vk),
+        },
+        hotkey_translate: HotkeyConfig {
+            modifiers: trans_mod,
+            vk: get_combo_vk(ID_CMB_TRANS_KEY, trans_mod, state.trans_vk),
         },
         auto_switch_layout: is_checked(ID_CHK_AUTO_SWITCH),
         auto_select_line: is_checked(ID_CHK_AUTO_SELECT_LINE),

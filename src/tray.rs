@@ -39,6 +39,7 @@ pub const WM_APP_RELOAD_CONFIG: u32 = WM_USER + 101;
 pub const HOTKEY_PRIMARY_ID: i32 = 1001;
 pub const HOTKEY_SECONDARY_ID: i32 = 1002;
 pub const HOTKEY_AI_SEARCH_ID: i32 = 1003;
+pub const HOTKEY_TRANSLATE_ID: i32 = 1004;
 
 const ID_TRAY_TITLE: usize = 2000;
 const ID_TRAY_SETTINGS: usize = 2001;
@@ -201,11 +202,12 @@ pub fn run_tray_app(initial_config: AppConfig) {
         nid.hIcon = icon_active;
 
         let tip = format!(
-            "LangSwitch v{}\nראשי: {}\nמשני: {}\nחיפוש AI: {}",
+            "LangSwitch v{}\nראשי: {}\nמשני: {}\nחיפוש AI: {}\nתרגום: {}",
             CURRENT_VERSION,
             initial_config.hotkey_primary.display_string(),
             initial_config.hotkey_secondary.display_string(),
             initial_config.hotkey_ai_search.display_string(),
+            initial_config.hotkey_translate.display_string(),
         );
         let wide_tip = to_wide(&tip);
         let copy_len = wide_tip.len().min(nid.szTip.len());
@@ -247,6 +249,7 @@ unsafe fn register_configured_hotkeys(hwnd: HWND, config: &AppConfig) {
         UnregisterHotKey(hwnd, HOTKEY_PRIMARY_ID);
         UnregisterHotKey(hwnd, HOTKEY_SECONDARY_ID);
         UnregisterHotKey(hwnd, HOTKEY_AI_SEARCH_ID);
+        UnregisterHotKey(hwnd, HOTKEY_TRANSLATE_ID);
 
         RegisterHotKey(
             hwnd,
@@ -267,6 +270,13 @@ unsafe fn register_configured_hotkeys(hwnd: HWND, config: &AppConfig) {
             HOTKEY_AI_SEARCH_ID,
             config.hotkey_ai_search.modifiers | MOD_NOREPEAT,
             config.hotkey_ai_search.vk,
+        );
+
+        RegisterHotKey(
+            hwnd,
+            HOTKEY_TRANSLATE_ID,
+            config.hotkey_translate.modifiers | MOD_NOREPEAT,
+            config.hotkey_translate.vk,
         );
     }
 }
@@ -290,7 +300,16 @@ unsafe extern "system" fn tray_wnd_proc(
                 let app = unsafe { &mut *state_ptr };
                 if !app.is_paused.load(Ordering::SeqCst) {
                     let hotkey_id = wparam as i32;
-                    if hotkey_id == HOTKEY_AI_SEARCH_ID {
+                    if hotkey_id == HOTKEY_TRANSLATE_ID {
+                        let (auto_select, restore_clip) = {
+                            let cfg = app.config.lock().unwrap();
+                            (cfg.auto_select_line, cfg.restore_clipboard)
+                        };
+
+                        thread::spawn(move || {
+                            perform_google_translation(auto_select, restore_clip);
+                        });
+                    } else if hotkey_id == HOTKEY_AI_SEARCH_ID {
                         let (auto_select, restore_clip) = {
                             let cfg = app.config.lock().unwrap();
                             (cfg.auto_select_line, cfg.restore_clipboard)
@@ -334,11 +353,12 @@ unsafe extern "system" fn tray_wnd_proc(
                 }
                 unsafe {
                     let tip = format!(
-                        "LangSwitch v{}\nראשי: {}\nמשני: {}\nחיפוש AI: {}",
+                        "LangSwitch v{}\nראשי: {}\nמשני: {}\nחיפוש AI: {}\nתרגום: {}",
                         CURRENT_VERSION,
                         cfg.hotkey_primary.display_string(),
                         cfg.hotkey_secondary.display_string(),
                         cfg.hotkey_ai_search.display_string(),
+                        cfg.hotkey_translate.display_string(),
                     );
                     let tip_wide = to_wide(&tip);
                     let len = tip_wide.len().min(app.nid.szTip.len());
@@ -472,6 +492,7 @@ unsafe extern "system" fn tray_wnd_proc(
                         UnregisterHotKey(hwnd, HOTKEY_PRIMARY_ID);
                         UnregisterHotKey(hwnd, HOTKEY_SECONDARY_ID);
                         UnregisterHotKey(hwnd, HOTKEY_AI_SEARCH_ID);
+                        UnregisterHotKey(hwnd, HOTKEY_TRANSLATE_ID);
                         PostQuitMessage(0);
                     },
                     _ => {}
@@ -487,6 +508,7 @@ unsafe extern "system" fn tray_wnd_proc(
                     UnregisterHotKey(hwnd, HOTKEY_PRIMARY_ID);
                     UnregisterHotKey(hwnd, HOTKEY_SECONDARY_ID);
                     UnregisterHotKey(hwnd, HOTKEY_AI_SEARCH_ID);
+                    UnregisterHotKey(hwnd, HOTKEY_TRANSLATE_ID);
                     DeleteObject(app.icon_active as *mut _);
                     DeleteObject(app.icon_paused as *mut _);
                 }
@@ -810,6 +832,106 @@ pub fn perform_google_ai_search(auto_select_line: bool, restore_clipboard: bool)
     }
 }
 
+/// Builds the Google translation search query based on input text language:
+/// - If text contains Hebrew letters (or Hebrew >= Latin): translates to English -> query is "{text} באנגלית"
+/// - If text is in Latin/English: translates to Hebrew -> query is "{text} בעברית"
+pub fn build_translation_query(text: &str) -> String {
+    let trimmed = text.trim();
+    let hebrew_count = trimmed
+        .chars()
+        .filter(|c| ('\u{05D0}'..='\u{05EA}').contains(c))
+        .count();
+    let latin_count = trimmed.chars().filter(|c| c.is_ascii_alphabetic()).count();
+
+    let suffix = if hebrew_count > 0 && hebrew_count >= latin_count {
+        "באנגלית"
+    } else if latin_count > 0 {
+        "בעברית"
+    } else if hebrew_count > 0 {
+        "באנגלית"
+    } else {
+        "בעברית"
+    };
+
+    format!("{} {}", trimmed, suffix)
+}
+
+/// Copies selected text (or current line if auto_select_line is enabled) and opens Google Quick Translation
+/// (e.g. "בית באנגלית" or "house בעברית") in a new browser tab
+pub fn perform_google_translation(auto_select_line: bool, restore_clipboard: bool) {
+    let original_clipboard = if restore_clipboard {
+        clipboard::get_clipboard_text()
+    } else {
+        None
+    };
+
+    // 1. Ensure any physically held modifiers are released
+    clipboard::release_physical_modifiers();
+
+    // 2. Clear clipboard first
+    clipboard::clear_clipboard();
+
+    // 3. Try copying already-selected text
+    clipboard::send_ctrl_c();
+
+    let mut query_text = None;
+    for _ in 0..5 {
+        thread::sleep(Duration::from_millis(2));
+        if let Some(t) = clipboard::get_clipboard_text() {
+            let trimmed = t.trim().to_string();
+            if !trimmed.is_empty() {
+                query_text = Some(trimmed);
+                break;
+            }
+        }
+    }
+
+    // 4. If nothing was selected and auto_select_line is enabled, select current line
+    if query_text.is_none() && auto_select_line {
+        clipboard::clear_clipboard();
+        clipboard::select_current_line_and_copy();
+
+        for _ in 0..6 {
+            thread::sleep(Duration::from_millis(2));
+            if let Some(t) = clipboard::get_clipboard_text() {
+                let trimmed = t.trim().to_string();
+                if !trimmed.is_empty() {
+                    query_text = Some(trimmed);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 5. Restore clipboard if requested
+    if let Some(orig) = original_clipboard {
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            clipboard::set_clipboard_text(&orig);
+        });
+    }
+
+    // 6. If we have a query, open Google Quick Translation in the default browser!
+    if let Some(text) = query_text {
+        let query = build_translation_query(&text);
+        let encoded = url_encode(&query);
+        let search_url = format!("https://www.google.com/search?q={}", encoded);
+        let wide_url = to_wide(&search_url);
+        let wide_open = to_wide("open");
+
+        unsafe {
+            ShellExecuteW(
+                ptr::null_mut(),
+                wide_open.as_ptr(),
+                wide_url.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                SW_SHOW,
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -824,6 +946,21 @@ mod tests {
         let enc = url_encode("מה זה חמצן");
         assert!(enc.contains('+'));
         assert!(enc.contains('%'));
+    }
+
+    #[test]
+    fn test_build_translation_query_hebrew() {
+        assert_eq!(build_translation_query("בית"), "בית באנגלית");
+        assert_eq!(build_translation_query(" שלום עולם "), "שלום עולם באנגלית");
+    }
+
+    #[test]
+    fn test_build_translation_query_english() {
+        assert_eq!(build_translation_query("house"), "house בעברית");
+        assert_eq!(
+            build_translation_query("what is oxygen"),
+            "what is oxygen בעברית"
+        );
     }
 }
 

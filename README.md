@@ -66,6 +66,11 @@ irm https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download
   * Converts mistyped text **ONLY** (without switching keyboard input layout).
 * **🔍 Google AI Search Hotkey (`Shift+Win+G`)**:
   * Highlights or takes the current text and opens a new browser tab with Google's dedicated AI Mode search (`https://www.google.com/search?q={query}&udm=50`).
+* **🌐 Google Quick Translation Hotkey (`Ctrl+Shift+T`)**:
+  * Translates text instantly between Hebrew and English via Google in your default browser:
+    * Hebrew text (e.g. `בית`) translates to English: opens query `בית באנגלית`.
+    * English text (e.g. `house`) translates to Hebrew: opens query `house בעברית`.
+    * Automatically displays Google's rich translation and dictionary card with audio and definitions at the top!
 * **Direct Layout Switching & Multi-Layout Support**:
   * Directly switches to the target Hebrew or English layout in 0.001ms via native Win32 messages — no Alt-key menu bar pauses.
   * Accurately distinguishes between duplicate variants (e.g., English US vs. UK or multiple Hebrew layouts) without random cycling.
@@ -130,6 +135,11 @@ langswitch --install
   * ממיר את הטקסט **בלבד** (ללא החלפת שפת המקלדת).
 * **🔍 חיפוש ישיר ב-Google AI Overviews (`Shift+Win+G`)**:
   * מעתיק את הטקסט המסומן (או השורה הנוכחית) ופותח מיד טאב חדש בדפדפן המוגדר כברירת מחדל עם שאילתת חיפוש במצב ה-AI הייעודי של גוגל (`https://www.google.com/search?q={שאילתה}&udm=50`).
+* **🌐 תרגום מהיר בגוגל בלחיצת מקש (`Ctrl+Shift+T`)**:
+  * מתרגם באופן מיידי טקסט בין עברית לאנגלית באמצעות גוגל בדפדפן:
+    * טקסט בעברית (למשל `בית`): נפתח חיפוש גוגל עם השאילתה `בית באנגלית`.
+    * טקסט באנגלית (למשל `house`): נפתח חיפוש גוגל עם השאילתה `house בעברית`.
+    * מציג מיד בראש הדף את כרטיסיית התרגום הרשמית של גוגל, כולל הגייה קולית, פירושים ומילים נרדפות!
 * **החלפת שפה ישירה ותמיכה בריבוי פריסות מקלדת**:
   * מזהה במדויק ופונה ישירות לפריסה המבוקשת (עברית או אנגלית) ללא דפדוף עיוור, גם אם מותקנות מספר פריסות אנגלית (למשל US ו-UK) או מספר פריסות עברית.
 * **טיפול חכם באותיות גדולות (Case Normalization)**:
@@ -138,7 +148,7 @@ langswitch --install
 * **מניעת התנגשויות קיצורים ב-Windows**:
   * תפריט בחירת המקשים מסנן באופן דינמי קיצורי מערכת של Windows (כגון `Win+Shift+S` ל-Snipping Tool, `Win+L`, `Alt+F4` ועוד).
 * **ממשק הגדרות מודרני בעיצוב נעים ורך**:
-  * חלון הגדרות מודרני בצבעוניות Slate אלגנטית, מותאם לעיניים ומאפשר התאמה מלאה של כל שלושת קיצורי הדרך.
+  * חלון הגדרות מודרני בצבעוניות Slate אלגנטית, מותאם לעיניים ומאפשר התאמה מלאה של כל 4 קיצורי הדרך (ראשי, משני, חיפוש AI ותרגום).
 * **התקנה חכמה ובקשת הרשאות מנהל רק במידת הצורך**:
   * בהפעלה ראשונה מוצעת התקנה מסודרת, יצירת קיצור דרך בתפריט התחל ורישום מלא ב"אפליקציות מותקנות" / לוח הבקרה של Windows (`--uninstall`).
   * **בקשת הרשאות מנהל (UAC Administrator) מתבצעת רק אם יש צורך אמיתי** (כגון העתקה ל-`Program Files`), ללא חלונות אישור מיותרים.

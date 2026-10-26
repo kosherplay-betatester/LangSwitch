@@ -58,7 +58,7 @@ pub fn show_welcome_window(config: &AppConfig) {
         RegisterClassExW(&wnd_class);
 
         let win_width = 580;
-        let win_height = 540;
+        let win_height = 590;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
@@ -178,7 +178,7 @@ unsafe fn init_welcome_controls(
         WC_BUTTONW,
         if is_en { " What LangSwitch does: " } else { " מה האפליקציה יודעת לעשות? " },
         BS_GROUPBOX as u32,
-        25, 90, 515, 335, 12,
+        25, 90, 515, 385, 12,
     );
 
     // Features List
@@ -188,6 +188,7 @@ unsafe fn init_welcome_controls(
             ("🎯  Auto-Line Selection:", "No need to select text! If unselected, the entire current line is converted instantly."),
             ("⚡  Secondary Hotkey (Ctrl + F10):", "Converts text ONLY (without changing keyboard input layout)."),
             ("🔍  Google AI Search (Shift + Win + G):", "Takes any copied/selected text and opens Google AI Mode directly (&udm=50)!"),
+            ("🌐  Quick Translation (Ctrl + Shift + T):", "Translates text between Hebrew and English via Google directly in your browser!"),
             ("🪟  Silent & Lightweight:", "Runs quietly in your System Tray with 0.00% CPU and minimal memory."),
         ]
     } else {
@@ -196,6 +197,7 @@ unsafe fn init_welcome_controls(
             ("\u{200F}🎯  זיהוי שורה אוטומטי:", "\u{200F}אין צורך לסמן בעכבר! אם לא סומן טקסט, כל השורה שהקלדת תומר מיד."),
             ("\u{200F}⚡  מקש משני (Ctrl + F10):", "\u{200F}המרת טקסט בלבד (ללא שינוי שפת קלט המקלדת)."),
             ("\u{200F}🔍  חיפוש ב-Google AI (Shift + Win + G):", "\u{200F}מסמנים כל טקסט ופותחים אותו מיד במצב ה-AI החדש של גוגל (&udm=50)!"),
+            ("\u{200F}🌐  תרגום מהיר (Ctrl + Shift + T):", "\u{200F}תרגום מיידי מעברית לאנגלית ולהיפך בגוגל (בית -> באנגלית, house -> בעברית)!"),
             ("\u{200F}🪟  שקט וחסכוני במשאבים:", "\u{200F}פועל ברקע באזור מגש המערכת (ליד השעון) עם 0% ניצול מעבד."),
         ]
     };
@@ -221,7 +223,7 @@ unsafe fn init_welcome_controls(
         WC_BUTTONW,
         btn_text,
         BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
-        170, 445, 230, 40,
+        170, 495, 230, 40,
         ID_BTN_START,
     );
     unsafe {

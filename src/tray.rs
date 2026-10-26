@@ -35,6 +35,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 pub const WM_TRAYICON: u32 = WM_USER + 100;
+pub const WM_APP_RELOAD_CONFIG: u32 = WM_USER + 101;
 pub const HOTKEY_PRIMARY_ID: i32 = 1001;
 pub const HOTKEY_SECONDARY_ID: i32 = 1002;
 
@@ -293,6 +294,29 @@ unsafe extern "system" fn tray_wnd_proc(
                     thread::spawn(move || {
                         perform_conversion(auto_select, switch_layout, restore_clip);
                     });
+                }
+            }
+            return 0;
+        }
+        WM_APP_RELOAD_CONFIG => {
+            if !state_ptr.is_null() {
+                let app = unsafe { &mut *state_ptr };
+                let cfg = app.config.lock().unwrap().clone();
+                if !app.is_paused.load(Ordering::SeqCst) {
+                    unsafe {
+                        register_configured_hotkeys(hwnd, &cfg);
+                    }
+                }
+                unsafe {
+                    let tip = format!(
+                        "LangSwitch - פעיל\nמקש ראשי: {}\nמקש משני: {}",
+                        cfg.hotkey_primary.display_string(),
+                        cfg.hotkey_secondary.display_string()
+                    );
+                    let tip_wide = to_wide(&tip);
+                    let len = tip_wide.len().min(app.nid.szTip.len());
+                    app.nid.szTip[..len].copy_from_slice(&tip_wide[..len]);
+                    Shell_NotifyIconW(NIM_MODIFY, &app.nid);
                 }
             }
             return 0;
@@ -564,22 +588,19 @@ fn open_settings_window(app: &TrayApp) {
     let current_cfg = app.config.lock().unwrap().clone();
     let config_arc = Arc::clone(&app.config);
     let hwnd_val = app.hwnd as usize;
-    let is_paused_arc = Arc::clone(&app.is_paused);
 
     settings_gui::show_settings_window(
         current_cfg,
         Box::new(move |new_cfg| {
             {
                 let mut guard = config_arc.lock().unwrap();
-                *guard = new_cfg.clone();
+                *guard = new_cfg;
             }
 
-            // If not paused, re-register hotkeys with new settings immediately
-            if !is_paused_arc.load(Ordering::SeqCst) {
-                unsafe {
-                    let hwnd = hwnd_val as HWND;
-                    register_configured_hotkeys(hwnd, &new_cfg);
-                }
+            // Post message to the main thread that owns hwnd so RegisterHotKey succeeds 100%!
+            unsafe {
+                let hwnd = hwnd_val as HWND;
+                PostMessageW(hwnd, WM_APP_RELOAD_CONFIG, 0, 0);
             }
         }),
     );
@@ -602,8 +623,9 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
     clipboard::send_ctrl_c();
 
     let mut selected_text = None;
-    for _ in 0..20 {
-        thread::sleep(Duration::from_millis(3));
+    // Rapid check: if text was already selected, it arrives in 2-4ms
+    for _ in 0..4 {
+        thread::sleep(Duration::from_millis(2));
         if let Some(t) = clipboard::get_clipboard_text() {
             if !t.is_empty() {
                 selected_text = Some(t);
@@ -612,14 +634,13 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
         }
     }
 
-    // 4. If nothing was selected and auto_select_line is enabled, select current line!
+    // 4. If nothing was selected and auto_select_line is enabled, select line & copy in a single atomic input sequence!
     if selected_text.is_none() && auto_select_line {
         clipboard::clear_clipboard();
-        clipboard::select_current_line();
-        clipboard::send_ctrl_c();
+        clipboard::select_current_line_and_copy();
 
-        for _ in 0..20 {
-            thread::sleep(Duration::from_millis(3));
+        for _ in 0..5 {
+            thread::sleep(Duration::from_millis(2));
             if let Some(t) = clipboard::get_clipboard_text() {
                 if !t.is_empty() {
                     selected_text = Some(t);
@@ -635,7 +656,7 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
         _ => return,
     };
 
-    // 6. Convert text
+    // 6. Convert text in memory
     let (converted, _direction) = converter::convert_text(&text);
     if converted == text {
         return;
@@ -643,22 +664,21 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
 
     // 7. Put converted text into clipboard
     clipboard::set_clipboard_text(&converted);
-    thread::sleep(Duration::from_millis(5));
+    thread::sleep(Duration::from_millis(2));
 
     // 8. Ensure modifiers are released and paste converted text
     clipboard::release_physical_modifiers();
     clipboard::send_ctrl_v();
 
-    // 9. Switch layout if requested
+    // 9. Switch layout if requested (immediate, no extra sleep)
     if switch_layout {
-        thread::sleep(Duration::from_millis(15));
         clipboard::switch_keyboard_layout();
     }
 
     // 10. Restore original clipboard if requested
     if let Some(orig) = original_clipboard {
         thread::spawn(move || {
-            thread::sleep(Duration::from_millis(300));
+            thread::sleep(Duration::from_millis(200));
             clipboard::set_clipboard_text(&orig);
         });
     }

@@ -206,26 +206,41 @@ pub fn send_ctrl_v() {
 }
 
 /// Select the entire current line by sending Home then Shift + End
+#[allow(dead_code)]
 pub fn select_current_line() {
     release_physical_modifiers();
 
-    // 1. Send Home key
-    let inputs_home = [
+    let inputs = [
         make_key_input(VK_HOME, false, true),
         make_key_input(VK_HOME, true, true),
-    ];
-    send_inputs(&inputs_home);
-    thread::sleep(Duration::from_millis(4));
-
-    // 2. Send Shift + End
-    let inputs_shift_end = [
         make_key_input(VK_SHIFT, false, false),
         make_key_input(VK_END, false, true),
         make_key_input(VK_END, true, true),
         make_key_input(VK_SHIFT, true, false),
     ];
-    send_inputs(&inputs_shift_end);
-    thread::sleep(Duration::from_millis(4));
+    send_inputs(&inputs);
+}
+
+/// Selects the current line and sends Ctrl+C in a single atomic input sequence without delay
+pub fn select_current_line_and_copy() {
+    release_physical_modifiers();
+
+    let inputs = [
+        // Home key
+        make_key_input(VK_HOME, false, true),
+        make_key_input(VK_HOME, true, true),
+        // Shift + End
+        make_key_input(VK_SHIFT, false, false),
+        make_key_input(VK_END, false, true),
+        make_key_input(VK_END, true, true),
+        make_key_input(VK_SHIFT, true, false),
+        // Ctrl + C
+        make_key_input(VK_CONTROL, false, false),
+        make_key_input(VK_C, false, false),
+        make_key_input(VK_C, true, false),
+        make_key_input(VK_CONTROL, true, false),
+    ];
+    send_inputs(&inputs);
 }
 
 /// Switch keyboard layout reliably using both WM_INPUTLANGCHANGEREQUEST and Alt + Shift

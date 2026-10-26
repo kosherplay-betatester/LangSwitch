@@ -6,7 +6,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontW, DeleteObject, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
+    CreateFontW, DeleteObject, InvalidateRect, UpdateWindow, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
     DEFAULT_QUALITY, FW_NORMAL, HBRUSH, HFONT, OUT_DEFAULT_PRECIS,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -530,6 +530,7 @@ unsafe fn init_controls(
 
 /// Populates a combobox with all keys that do NOT conflict with Windows shortcuts for the given modifier set.
 unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_vk: u32) {
+    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
     let cmb = unsafe { GetDlgItem(hwnd, cmb_id as i32) };
     unsafe {
         SendMessageW(cmb, CB_RESETCONTENT, 0, 0);
@@ -542,6 +543,7 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
         .collect();
 
     let mut selected_idx = 0;
+    let mut found = false;
     for (i, (name, vk)) in valid_keys.iter().enumerate() {
         let wname = to_wide(name);
         unsafe {
@@ -549,11 +551,35 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
         }
         if *vk == desired_vk {
             selected_idx = i;
+            found = true;
+        }
+    }
+
+    // If desired_vk was conflicted, fallback to F10 if available, otherwise first valid key
+    if !found && !valid_keys.is_empty() {
+        if let Some(pos) = valid_keys.iter().position(|(_, vk)| *vk == VK_F10) {
+            selected_idx = pos;
+        } else {
+            selected_idx = 0;
         }
     }
 
     unsafe {
         SendMessageW(cmb, CB_SETCURSEL, selected_idx, 0);
+        InvalidateRect(cmb, ptr::null(), 1);
+        UpdateWindow(cmb);
+    }
+
+    // Keep state updated so state.pri_vk / state.sec_vk always reflects the actual selected key!
+    if !state_ptr.is_null() {
+        let state = unsafe { &mut *state_ptr };
+        if let Some((_, vk)) = valid_keys.get(selected_idx) {
+            if cmb_id == ID_CMB_PRI_KEY {
+                state.pri_vk = *vk;
+            } else {
+                state.sec_vk = *vk;
+            }
+        }
     }
 }
 
@@ -638,25 +664,29 @@ unsafe extern "system" fn settings_wnd_proc(
                     let state = unsafe { &mut *state_ptr };
                     if ctrl_id == ID_CMB_PRI_KEY {
                         let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_PRI_KEY as i32) };
-                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize };
-                        let modifiers = unsafe { get_modifiers(hwnd, true) };
-                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
-                            .iter()
-                            .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
-                            .collect();
-                        if let Some((_, vk)) = valid.get(idx) {
-                            state.pri_vk = *vk;
+                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                        if idx >= 0 {
+                            let modifiers = unsafe { get_modifiers(hwnd, true) };
+                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                                .iter()
+                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                                .collect();
+                            if let Some((_, vk)) = valid.get(idx as usize) {
+                                state.pri_vk = *vk;
+                            }
                         }
                     } else if ctrl_id == ID_CMB_SEC_KEY {
                         let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_SEC_KEY as i32) };
-                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize };
-                        let modifiers = unsafe { get_modifiers(hwnd, false) };
-                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
-                            .iter()
-                            .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
-                            .collect();
-                        if let Some((_, vk)) = valid.get(idx) {
-                            state.sec_vk = *vk;
+                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                        if idx >= 0 {
+                            let modifiers = unsafe { get_modifiers(hwnd, false) };
+                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                                .iter()
+                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                                .collect();
+                            if let Some((_, vk)) = valid.get(idx as usize) {
+                                state.sec_vk = *vk;
+                            }
                         }
                     } else if ctrl_id == ID_CMB_LANG {
                         let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_LANG as i32) };
@@ -975,12 +1005,17 @@ unsafe fn save_and_close(hwnd: HWND) {
     let get_combo_vk = |id: usize, modifiers: u32, default_vk: u32| -> u32 {
         unsafe {
             let ctrl = GetDlgItem(hwnd, id as i32);
-            let idx = SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize;
-            let valid: Vec<_> = ALL_KEYBOARD_KEYS
-                .iter()
-                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
-                .collect();
-            valid.get(idx).map(|(_, vk)| *vk).unwrap_or(default_vk)
+            let idx = SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize;
+            if idx >= 0 {
+                let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                    .iter()
+                    .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
+                    .collect();
+                if let Some((_, vk)) = valid.get(idx as usize) {
+                    return *vk;
+                }
+            }
+            default_vk
         }
     };
 

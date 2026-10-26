@@ -15,6 +15,31 @@
 
 ---
 
+## ⚡ Quick Install / התקנה מהירה בפקודה אחת
+
+### 🐧 Linux (Linux Mint, Fedora, Arch, Ubuntu, Debian)
+העתק והדבק שורה אחת זו בטרמינל להתקנה אוטומטית מלאה (כולל אייקון והגדרת מקש `F10` במערכת):  
+*Copy & paste this single command into your Linux terminal for full automated installation:*
+
+```bash
+curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+```
+
+---
+
+### 🪟 Windows (Windows 10 / 11)
+הורד והפעל ישירות את קובץ התוכנה:  
+*Download and run the ready-to-use standalone `.exe`:*
+
+👉 **[⬇️ לחץ כאן להורדת LangSwitch ל-Windows (langswitch.exe)](https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download/langswitch.exe)**
+
+או להורדה והפעלה מהירה ב-PowerShell:
+```powershell
+irm https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download/langswitch.exe -OutFile "$env:TEMP\langswitch.exe"; & "$env:TEMP\langswitch.exe"
+```
+
+---
+
 ## 🌐 English
 
 ### Overview
@@ -47,12 +72,7 @@ LangSwitch works out-of-the-box on all major Linux distributions:
 * **Arch Linux** (KDE Plasma 6, Hyprland, Sway, i3)
 * **Ubuntu / Debian** (GNOME Wayland & X11)
 
-#### Why Linux doesn't need hardcoded shortcut conflict filters:
-Unlike Windows where system shortcuts are globally uniform, every Linux distribution and desktop environment (DE) has its own customizable shortcuts (e.g. `Ctrl+Alt+T` for terminal in Mint/Ubuntu, `Super` in GNOME, custom `hyprland.conf` in Arch).  
-Because Linux Desktop Environments have their own built-in shortcut managers, **the system itself warns you if a chosen shortcut conflicts with an existing one**.
-
 #### 🚀 1-Step Friendly Automated Installation:
-Run this single command in your Linux terminal to automatically install LangSwitch, set up desktop icons, and configure `F10` & `Shift+F10` shortcuts in GNOME & Cinnamon:
 ```bash
 curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
 ```
@@ -109,10 +129,6 @@ LangSwitch פועלת באופן חלק בכל הפצות הלינוקס הפו�
 * **Fedora** (GNOME - Wayland)
 * **Arch Linux** (KDE Plasma 6, Hyprland, Sway, i3)
 * **Ubuntu / Debian** (GNOME Wayland & X11)
-
-#### מדוע בלינוקס אין צורך בסינון קיצורים קשיח מראש?
-בניגוד ל-Windows שבה קיצורי הדרך אחידים וקבועים בכל המחשבים, בלינוקס לכל הפצה ולכל סביבת שולחן עבודה (GNOME, Cinnamon, KDE, Hyprland) יש קיצורי מערכת שונים לחלוטין הניתנים לשינוי מלא על ידי המשתמש.  
-מכיוון שסביבות הלינוקס מנהלות את הקיצורים באופן עצמאי, **מערכת ההפעלה עצמה מזהירה ומתריעה בזמן אמת** אם נבחר מקש קיצור שכבר תפוס על ידי יישום אחר.
 
 #### 🚀 התקנה אוטומטית וידידותית בפקודה אחת:
 הרץ פקודה זו בטרמינל כדי להתקין את LangSwitch, להטמיע את האייקון בתפריט ולהגדיר אוטומטית את קיצורי הדרך `F10` ו-`Shift+F10` ב-GNOME (Fedora / Ubuntu) וב-Cinnamon (Linux Mint):

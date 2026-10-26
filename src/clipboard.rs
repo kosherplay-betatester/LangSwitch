@@ -2,20 +2,35 @@ use std::ptr;
 use std::thread;
 use std::time::Duration;
 use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber, OpenClipboard,
-    SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
-    KEYEVENTF_KEYUP, VK_C, VK_CONTROL, VK_END, VK_HOME, VK_MENU, VK_SHIFT, VK_V,
+    ActivateKeyboardLayout, GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD,
+    KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_C, VK_CONTROL, VK_END, VK_HOME,
+    VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT,
+    VK_RWIN, VK_SHIFT, VK_V,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, PostMessageW};
+
+pub const WM_INPUTLANGCHANGEREQUEST: u32 = 0x0050;
 
 const CF_UNICODETEXT: u32 = 13;
 
-pub fn get_clipboard_seq() -> u32 {
-    unsafe { GetClipboardSequenceNumber() }
+pub fn clear_clipboard() {
+    unsafe {
+        for _ in 0..5 {
+            if OpenClipboard(ptr::null_mut()) != 0 {
+                EmptyClipboard();
+                CloseClipboard();
+                break;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
 }
+
+
 
 pub fn get_clipboard_text() -> Option<String> {
     unsafe {
@@ -131,8 +146,44 @@ fn send_inputs(inputs: &[INPUT]) {
     }
 }
 
-/// Send Ctrl + C
+/// Releases physical modifiers (Shift, Ctrl, Alt, Win) if currently held by user
+pub fn release_physical_modifiers() {
+    unsafe {
+        let modifiers = [
+            VK_SHIFT,
+            VK_LSHIFT,
+            VK_RSHIFT,
+            VK_CONTROL,
+            VK_LCONTROL,
+            VK_RCONTROL,
+            VK_MENU,
+            VK_LMENU,
+            VK_RMENU,
+            VK_LWIN,
+            VK_RWIN,
+        ];
+
+        let mut inputs = Vec::new();
+        for &vk in &modifiers {
+            if (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0 {
+                inputs.push(make_key_input(vk, true, false));
+            }
+        }
+
+        if !inputs.is_empty() {
+            SendInput(
+                inputs.len() as u32,
+                inputs.as_ptr(),
+                std::mem::size_of::<INPUT>() as i32,
+            );
+            thread::sleep(Duration::from_millis(3));
+        }
+    }
+}
+
+/// Send Ctrl + C cleanly
 pub fn send_ctrl_c() {
+    release_physical_modifiers();
     let inputs = [
         make_key_input(VK_CONTROL, false, false),
         make_key_input(VK_C, false, false),
@@ -142,8 +193,9 @@ pub fn send_ctrl_c() {
     send_inputs(&inputs);
 }
 
-/// Send Ctrl + V
+/// Send Ctrl + V cleanly
 pub fn send_ctrl_v() {
+    release_physical_modifiers();
     let inputs = [
         make_key_input(VK_CONTROL, false, false),
         make_key_input(VK_V, false, false),
@@ -155,13 +207,17 @@ pub fn send_ctrl_v() {
 
 /// Select the entire current line by sending Home then Shift + End
 pub fn select_current_line() {
+    release_physical_modifiers();
+
+    // 1. Send Home key
     let inputs_home = [
         make_key_input(VK_HOME, false, true),
         make_key_input(VK_HOME, true, true),
     ];
     send_inputs(&inputs_home);
-    thread::sleep(Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(4));
 
+    // 2. Send Shift + End
     let inputs_shift_end = [
         make_key_input(VK_SHIFT, false, false),
         make_key_input(VK_END, false, true),
@@ -169,16 +225,28 @@ pub fn select_current_line() {
         make_key_input(VK_SHIFT, true, false),
     ];
     send_inputs(&inputs_shift_end);
-    thread::sleep(Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(4));
 }
 
-/// Switch keyboard layout (Alt + Shift)
+/// Switch keyboard layout reliably using both WM_INPUTLANGCHANGEREQUEST and Alt + Shift
 pub fn switch_keyboard_layout() {
-    let inputs = [
-        make_key_input(VK_MENU, false, false),
-        make_key_input(VK_SHIFT, false, false),
-        make_key_input(VK_SHIFT, true, false),
-        make_key_input(VK_MENU, true, false),
-    ];
-    send_inputs(&inputs);
+    unsafe {
+        // 1. Tell active window to switch to next input language layout
+        let fg = GetForegroundWindow();
+        if !fg.is_null() {
+            // HKL_NEXT = 1
+            PostMessageW(fg, WM_INPUTLANGCHANGEREQUEST, 1, 0);
+            ActivateKeyboardLayout(1 as *mut _, 0);
+        }
+
+        // 2. Also simulate clean Alt + Shift keypress
+        release_physical_modifiers();
+        let inputs = [
+            make_key_input(VK_MENU, false, false),
+            make_key_input(VK_SHIFT, false, false),
+            make_key_input(VK_SHIFT, true, false),
+            make_key_input(VK_MENU, true, false),
+        ];
+        send_inputs(&inputs);
+    }
 }

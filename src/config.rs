@@ -321,6 +321,13 @@ pub fn is_windows_conflict(modifiers: u32, vk: u32) -> bool {
         }
     }
 
+    // 4. Shift alone Combinations
+    if has_shift && !has_ctrl && !has_win && !has_alt {
+        if vk == VK_F10 {
+            return true; // Shift + F10 is Windows Universal Context Menu (Right-Click)
+        }
+    }
+
     false
 }
 
@@ -409,14 +416,14 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            // Default: F10
+            // Default: F10 (Convert text)
             hotkey_primary: HotkeyConfig {
                 modifiers: 0,
                 vk: VK_F10,
             },
-            // Default: Shift + F10
+            // Default: Ctrl + F10 (Convert text & Switch layout)
             hotkey_secondary: HotkeyConfig {
-                modifiers: MOD_SHIFT,
+                modifiers: MOD_CONTROL,
                 vk: VK_F10,
             },
             auto_switch_layout: true,
@@ -613,14 +620,18 @@ mod tests {
 
     #[test]
     fn test_safe_hotkeys() {
-        // Shift + Win + F10 is safe!
-        assert!(!is_windows_conflict(MOD_SHIFT | MOD_WIN, VK_F10));
         // F10 alone is safe!
         assert!(!is_windows_conflict(0, VK_F10));
-        // Shift + F10 is safe!
-        assert!(!is_windows_conflict(MOD_SHIFT, VK_F10));
+        // Ctrl + F10 is safe!
+        assert!(!is_windows_conflict(MOD_CONTROL, VK_F10));
         // Ctrl + Shift + F10 is safe!
         assert!(!is_windows_conflict(MOD_CONTROL | MOD_SHIFT, VK_F10));
+    }
+
+    #[test]
+    fn test_shift_f10_context_menu_conflict() {
+        // Shift + F10 is a Windows conflict (Context Menu / Right Click)
+        assert!(is_windows_conflict(MOD_SHIFT, VK_F10));
     }
 
     #[test]

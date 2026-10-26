@@ -785,10 +785,10 @@ unsafe fn handle_restore_defaults(hwnd: HWND) {
     set_check(ID_CHK_PRI_SHIFT, false);
     set_check(ID_CHK_PRI_WIN, false);
 
-    // Secondary: Shift + F10
-    set_check(ID_CHK_SEC_CTRL, false);
+    // Secondary: Ctrl + F10
+    set_check(ID_CHK_SEC_CTRL, true);
     set_check(ID_CHK_SEC_ALT, false);
-    set_check(ID_CHK_SEC_SHIFT, true);
+    set_check(ID_CHK_SEC_SHIFT, false);
     set_check(ID_CHK_SEC_WIN, false);
 
     // Options defaults
@@ -806,7 +806,7 @@ unsafe fn handle_restore_defaults(hwnd: HWND) {
 
     unsafe {
         populate_combobox(hwnd, ID_CMB_PRI_KEY, 0, VK_F10);
-        populate_combobox(hwnd, ID_CMB_SEC_KEY, MOD_SHIFT, VK_F10);
+        populate_combobox(hwnd, ID_CMB_SEC_KEY, MOD_CONTROL, VK_F10);
     }
 }
 

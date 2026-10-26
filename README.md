@@ -21,7 +21,7 @@
 
 <div dir="rtl">
 
-העתק והדבק את הפקודה הבאה בטרמינל להתקנה אוטומטית מלאה (כולל אייקון והגדרת מקש `F10` במערכת):
+העתק והדבק את הפקודה הבאה בטרמינל להתקנה אוטומטית מלאה (כולל אייקון והגדרת קיצורי `F10` ו-`Ctrl+F10` במערכת):
 
 </div>
 
@@ -67,7 +67,7 @@ irm https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download
   * Converting Hebrew (`אקסא`) to English produces clean lowercase (`text`).
 * **Keyboard Layout Auto-Switching**:
   * Configurable option to switch input language automatically upon conversion (`Alt+Shift`).
-  * **Dedicated Secondary Hotkey (`Shift+F10`)**: Always converts text **and** toggles the layout regardless of the global setting.
+  * **Dedicated Secondary Hotkey (`Ctrl+F10`)**: Always converts text **and** toggles the layout regardless of the global setting.
 * **Windows Shortcut Conflict Prevention**:
   * In the Windows Settings GUI, dangerous combinations (such as `Win+Shift+S`, `Win+L`, `Alt+F4`, `Ctrl+C`) are dynamically filtered to prevent conflicting with Windows system shortcuts.
 * **Smart Installation with Conditional Admin Elevation**:
@@ -127,7 +127,7 @@ langswitch --install
   * המרה מעברית (`אקסא`) לאנגלית מייצרת תמיד אותיות קטנות (`text`).
 * **החלפת שפת מקלדת אוטומטית**:
   * אפשרות בהגדרות להחלפת שפת הקלט אוטומטית בעת המרה (`Alt+Shift`).
-  * **מקש קיצור משני ייעודי (`Shift+F10`)**: ממיר את הטקסט **וגם מחליף את שפת המקלדת תמיד**, גם אם ההגדרה האוטומטית כבויה.
+  * **מקש קיצור משני ייעודי (`Ctrl+F10`)**: ממיר את הטקסט **וגם מחליף את שפת המקלדת תמיד**, גם אם ההגדרה האוטומטית כבויה.
 * **מניעת התנגשויות קיצורים ב-Windows**:
   * תפריט בחירת המקשים מסנן באופן דינמי קיצורי מערכת של Windows (כגון `Win+Shift+S` ל-Snipping Tool, `Win+L`, `Alt+F4` ועוד).
 * **התקנה חכמה ובקשת הרשאות מנהל רק במידת הצורך**:
@@ -150,7 +150,7 @@ LangSwitch פועלת באופן חלק בכל הפצות הלינוקס הפו�
 מכיוון שסביבות הלינוקס מנהלות את הקיצורים באופן עצמאי, **מערכת ההפעלה עצמה מזהירה ומתריעה בזמן אמת** אם נבחר מקש קיצור שכבר תפוס על ידי יישום אחר.
 
 #### 🚀 התקנה אוטומטית וידידותית בפקודה אחת:
-הרץ פקודה זו בטרמינל כדי להתקין את LangSwitch, להטמיע את האייקון בתפריט ולהגדיר אוטומטית את קיצורי הדרך `F10` ו-`Shift+F10` ב-GNOME וב-Cinnamon:
+הרץ פקודה זו בטרמינל כדי להתקין את LangSwitch, להטמיע את האייקון בתפריט ולהגדיר אוטומטית את קיצורי הדרך `F10` ו-`Ctrl+F10` ב-GNOME וב-Cinnamon:
 
 <div dir="ltr">
 

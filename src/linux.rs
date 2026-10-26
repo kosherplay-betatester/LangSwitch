@@ -464,7 +464,7 @@ pub fn install_app_linux() -> Result<(), String> {
 
     println!("\n🎉 LangSwitch הותקנה בהצלחה בלינוקס!");
     println!("   מקש קיצור ראשי:  F10       (המרה)");
-    println!("   מקש קיצור משני: Shift+F10 (המרה + החלפת שפת מקלדת)");
+    println!("   מקש קיצור משני: Ctrl+F10  (המרה + החלפת שפת מקלדת)");
     Ok(())
 }
 
@@ -495,7 +495,7 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
             .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "binding", "F10"])
             .status();
 
-        // Binding 2: Shift+F10
+        // Binding 2: Ctrl+F10
         let _ = Command::new("gsettings")
             .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "name", "LangSwitch Convert & Switch"])
             .status();
@@ -504,9 +504,9 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
             .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "command", &cmd2])
             .status();
         let _ = Command::new("gsettings")
-            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "binding", "<Shift>F10"])
+            .args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "binding", "<Control>F10"])
             .status();
-        println!("✅ קיצורי הדרך F10 ו-Shift+F10 הוגדרו בהצלחה ב-GNOME!");
+        println!("✅ קיצורי הדרך F10 ו-Ctrl+F10 הוגדרו בהצלחה ב-GNOME!");
         return;
     }
 
@@ -536,9 +536,9 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
             .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "command", &cmd2])
             .status();
         let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "binding", "['<Shift>F10']"])
+            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "binding", "['<Control>F10']"])
             .status();
-        println!("✅ קיצורי הדרך F10 ו-Shift+F10 הוגדרו בהצלחה ב-Linux Mint Cinnamon!");
+        println!("✅ קיצורי הדרך F10 ו-Ctrl+F10 הוגדרו בהצלחה ב-Linux Mint Cinnamon!");
         return;
     }
 
@@ -548,6 +548,6 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
     } else {
         println!("💡 ב-Hyprland / Sway / i3 הוסף להגדרות:");
         println!("   bind = , F10, exec, {} --convert", exe_path);
-        println!("   bind = SHIFT, F10, exec, {} --convert-and-switch", exe_path);
+        println!("   bind = CONTROL, F10, exec, {} --convert-and-switch", exe_path);
     }
 }

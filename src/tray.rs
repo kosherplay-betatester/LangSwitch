@@ -592,59 +592,70 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
         None
     };
 
-    let seq_start = clipboard::get_clipboard_seq();
+    // 1. Ensure any physically held modifiers (Shift, Alt, Win, Ctrl) are released
+    clipboard::release_physical_modifiers();
 
-    // 1. Try copying selected text
+    // 2. Clear clipboard first so we can detect incoming copied text with zero false-positives
+    clipboard::clear_clipboard();
+
+    // 3. Try copying already-selected text
     clipboard::send_ctrl_c();
 
-    let mut got_selection = false;
-    for _ in 0..7 {
-        thread::sleep(Duration::from_millis(10));
-        if clipboard::get_clipboard_seq() != seq_start {
-            got_selection = true;
-            break;
-        }
-    }
-
-    // 2. If nothing selected and auto_select_line is enabled, select whole line!
-    if !got_selection && auto_select_line {
-        let seq_before_line = clipboard::get_clipboard_seq();
-        clipboard::select_current_line();
-        clipboard::send_ctrl_c();
-        for _ in 0..7 {
-            thread::sleep(Duration::from_millis(10));
-            if clipboard::get_clipboard_seq() != seq_before_line {
+    let mut selected_text = None;
+    for _ in 0..20 {
+        thread::sleep(Duration::from_millis(3));
+        if let Some(t) = clipboard::get_clipboard_text() {
+            if !t.is_empty() {
+                selected_text = Some(t);
                 break;
             }
         }
     }
 
-    // 3. Read copied text
-    let text = match clipboard::get_clipboard_text() {
+    // 4. If nothing was selected and auto_select_line is enabled, select current line!
+    if selected_text.is_none() && auto_select_line {
+        clipboard::clear_clipboard();
+        clipboard::select_current_line();
+        clipboard::send_ctrl_c();
+
+        for _ in 0..20 {
+            thread::sleep(Duration::from_millis(3));
+            if let Some(t) = clipboard::get_clipboard_text() {
+                if !t.is_empty() {
+                    selected_text = Some(t);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 5. Read text to convert
+    let text = match selected_text {
         Some(t) if !t.is_empty() => t,
         _ => return,
     };
 
-    // 4. Convert text
+    // 6. Convert text
     let (converted, _direction) = converter::convert_text(&text);
     if converted == text {
         return;
     }
 
-    // 5. Put converted text into clipboard
+    // 7. Put converted text into clipboard
     clipboard::set_clipboard_text(&converted);
-    thread::sleep(Duration::from_millis(15));
+    thread::sleep(Duration::from_millis(5));
 
-    // 6. Paste converted text
+    // 8. Ensure modifiers are released and paste converted text
+    clipboard::release_physical_modifiers();
     clipboard::send_ctrl_v();
 
-    // 7. Switch layout if requested
+    // 9. Switch layout if requested
     if switch_layout {
-        thread::sleep(Duration::from_millis(25));
+        thread::sleep(Duration::from_millis(15));
         clipboard::switch_keyboard_layout();
     }
 
-    // 8. Restore original clipboard if requested
+    // 10. Restore original clipboard if requested
     if let Some(orig) = original_clipboard {
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(300));

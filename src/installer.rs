@@ -10,7 +10,9 @@ use windows_sys::Win32::System::Registry::{
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDYES, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO, SW_SHOW,
+    FindWindowW, GetWindowThreadProcessId, MessageBoxW, PostMessageW, IDOK, IDYES,
+    MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MB_YESNO, SW_SHOW,
+    WM_CLOSE,
 };
 
 const UNINSTALL_KEY: &[u16] = &[
@@ -152,7 +154,62 @@ pub fn is_running_as_admin() -> bool {
     unsafe { IsUserAnAdmin() != 0 }
 }
 
+/// Checks if another instance of LangSwitch is running, prompts the user to close it before install/update.
+pub fn check_and_close_running_instance() -> bool {
+    let tray_class = to_wide("LangSwitchTrayClass");
+    let hwnd = unsafe { FindWindowW(tray_class.as_ptr(), ptr::null()) };
+
+    let my_pid = std::process::id();
+    let mut target_pid: u32 = 0;
+
+    if !hwnd.is_null() {
+        unsafe {
+            GetWindowThreadProcessId(hwnd, &mut target_pid);
+        }
+    }
+
+    if !hwnd.is_null() && target_pid != my_pid {
+        let msg = to_wide(
+            "נמצא כי LangSwitch פועלת כעת ברקע.\n\n\
+            יש לסגור את היישום לפני ביצוע ההתקנה או העדכון.\n\n\
+            האם לסגור את היישום ולהמשיך בהתקנה עכשיו?",
+        );
+        let title = to_wide("LangSwitch פעילה ברקע");
+        let ans = unsafe {
+            MessageBoxW(
+                ptr::null_mut(),
+                msg.as_ptr(),
+                title.as_ptr(),
+                MB_OKCANCEL | MB_ICONWARNING,
+            )
+        };
+
+        if ans == IDOK {
+            // Close the existing running instance gracefully
+            unsafe {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
+            if target_pid != 0 {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &target_pid.to_string(), "/F"])
+                    .output();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            true
+        } else {
+            // User chose Cancel / Exit (יציאה)
+            false
+        }
+    } else {
+        true
+    }
+}
+
 pub fn install_app() {
+    if !check_and_close_running_instance() {
+        return;
+    }
+
     let current_exe = match std::env::current_exe() {
         Ok(e) => e,
         Err(_) => return,
@@ -272,6 +329,9 @@ fn elevate_and_install(current_exe: &Path) -> bool {
 }
 
 pub fn do_install_copy(source_exe: &Path, target_dir: &Path) {
+    if !check_and_close_running_instance() {
+        return;
+    }
     if let Err(e) = try_install(source_exe, target_dir) {
         let msg = to_wide(&format!("שגיאה בהעתקת קבצי ההתקנה:\n{}", e));
         let title = to_wide("שגיאת התקנה");

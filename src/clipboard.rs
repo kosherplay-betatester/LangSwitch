@@ -243,25 +243,123 @@ pub fn select_current_line_and_copy() {
     send_inputs(&inputs);
 }
 
-/// Switch keyboard layout reliably using both WM_INPUTLANGCHANGEREQUEST and Alt + Shift
-pub fn switch_keyboard_layout() {
-    unsafe {
-        // 1. Tell active window to switch to next input language layout
-        let fg = GetForegroundWindow();
-        if !fg.is_null() {
-            // HKL_NEXT = 1
-            PostMessageW(fg, WM_INPUTLANGCHANGEREQUEST, 1, 0);
-            ActivateKeyboardLayout(1 as *mut _, 0);
-        }
+use std::sync::atomic::{AtomicUsize, Ordering};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardLayout, GetKeyboardLayoutList, HKL};
+use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
-        // 2. Also simulate clean Alt + Shift keypress
-        release_physical_modifiers();
-        let inputs = [
-            make_key_input(VK_MENU, false, false),
-            make_key_input(VK_SHIFT, false, false),
-            make_key_input(VK_SHIFT, true, false),
-            make_key_input(VK_MENU, true, false),
-        ];
-        send_inputs(&inputs);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetLanguage {
+    Hebrew,
+    English,
+    #[allow(dead_code)]
+    Toggle,
+}
+
+static LAST_USED_ENGLISH_HKL: AtomicUsize = AtomicUsize::new(0);
+static LAST_USED_HEBREW_HKL: AtomicUsize = AtomicUsize::new(0);
+
+const LANG_HEBREW: u16 = 0x000D;
+const LANG_ENGLISH: u16 = 0x0009;
+
+/// Returns all currently installed keyboard layout handles (HKL)
+pub fn get_installed_layouts() -> Vec<HKL> {
+    unsafe {
+        let count = GetKeyboardLayoutList(0, ptr::null_mut());
+        if count <= 0 {
+            return Vec::new();
+        }
+        let mut buffer = vec![ptr::null_mut(); count as usize];
+        let actual = GetKeyboardLayoutList(count, buffer.as_mut_ptr());
+        if actual > 0 {
+            buffer.truncate(actual as usize);
+            buffer
+        } else {
+            Vec::new()
+        }
     }
 }
+
+/// Switch keyboard layout instantly and accurately between Hebrew and English layouts.
+/// Handles cases where multiple English (e.g. US, UK) or Hebrew layouts exist without random cycling.
+pub fn switch_keyboard_layout(target: TargetLanguage) {
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.is_null() {
+            return;
+        }
+
+        let thread_id = GetWindowThreadProcessId(fg, ptr::null_mut());
+        let current_hkl = GetKeyboardLayout(thread_id);
+        let current_lang_id = (current_hkl as usize & 0xFFFF) as u16;
+        let current_primary = current_lang_id & 0x03FF;
+
+        // Remember last used variants
+        if current_primary == LANG_ENGLISH {
+            LAST_USED_ENGLISH_HKL.store(current_hkl as usize, Ordering::SeqCst);
+        } else if current_primary == LANG_HEBREW {
+            LAST_USED_HEBREW_HKL.store(current_hkl as usize, Ordering::SeqCst);
+        }
+
+        let installed = get_installed_layouts();
+        if installed.is_empty() {
+            return;
+        }
+
+        let target_primary = match target {
+            TargetLanguage::Hebrew => LANG_HEBREW,
+            TargetLanguage::English => LANG_ENGLISH,
+            TargetLanguage::Toggle => {
+                if current_primary == LANG_HEBREW {
+                    LANG_ENGLISH
+                } else {
+                    LANG_HEBREW
+                }
+            }
+        };
+
+        // Find the best HKL for the target primary language
+        let best_hkl: Option<HKL> = if target_primary == LANG_ENGLISH {
+            let last = LAST_USED_ENGLISH_HKL.load(Ordering::SeqCst) as HKL;
+            if !last.is_null() && installed.contains(&last) {
+                Some(last)
+            } else {
+                // Prefer English US (0x0409) if present, else first English layout
+                installed
+                    .iter()
+                    .copied()
+                    .find(|&h| (h as usize & 0xFFFF) == 0x0409)
+                    .or_else(|| {
+                        installed
+                            .iter()
+                            .copied()
+                            .find(|&h| ((h as usize & 0xFFFF) as u16 & 0x03FF) == LANG_ENGLISH)
+                    })
+            }
+        } else {
+            let last = LAST_USED_HEBREW_HKL.load(Ordering::SeqCst) as HKL;
+            if !last.is_null() && installed.contains(&last) {
+                Some(last)
+            } else {
+                // Prefer Standard Hebrew (0x040D) if present, else first Hebrew layout
+                installed
+                    .iter()
+                    .copied()
+                    .find(|&h| (h as usize & 0xFFFF) == 0x040D)
+                    .or_else(|| {
+                        installed
+                            .iter()
+                            .copied()
+                            .find(|&h| ((h as usize & 0xFFFF) as u16 & 0x03FF) == LANG_HEBREW)
+                    })
+            }
+        };
+
+        if let Some(target_hkl) = best_hkl {
+            if target_hkl != current_hkl {
+                PostMessageW(fg, WM_INPUTLANGCHANGEREQUEST, 0, target_hkl as isize);
+                ActivateKeyboardLayout(target_hkl, 0);
+            }
+        }
+    }
+}
+

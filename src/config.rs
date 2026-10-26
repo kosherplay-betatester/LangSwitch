@@ -411,17 +411,19 @@ pub struct AppConfig {
     pub restore_clipboard: bool,
     #[serde(default = "default_ui_language")]
     pub ui_language: String, // "he" or "en"
+    #[serde(default)]
+    pub last_welcome_version: Option<String>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            // Default: F10 (Convert text)
+            // Default: F10 (Convert text & Switch layout)
             hotkey_primary: HotkeyConfig {
                 modifiers: 0,
                 vk: VK_F10,
             },
-            // Default: Ctrl + F10 (Convert text & Switch layout)
+            // Default: Ctrl + F10 (Convert text only)
             hotkey_secondary: HotkeyConfig {
                 modifiers: MOD_CONTROL,
                 vk: VK_F10,
@@ -431,6 +433,7 @@ impl Default for AppConfig {
             start_with_windows: false,
             restore_clipboard: false,
             ui_language: "he".to_string(),
+            last_welcome_version: None,
         }
     }
 }

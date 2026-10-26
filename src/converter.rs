@@ -31,12 +31,10 @@ pub fn convert_text(input: &str) -> (String, ConversionDirection) {
 
     let result = match direction {
         ConversionDirection::EnglishToHebrew => {
-            // First convert all English uppercase to lowercase as required
             let lower = input.to_lowercase();
             lower.chars().map(en_char_to_he).collect()
         }
         ConversionDirection::HebrewToEnglish => {
-            // Map Hebrew chars to lowercase English
             input.chars().map(he_char_to_en).collect()
         }
     };

@@ -9,6 +9,8 @@ mod installer;
 #[cfg(windows)]
 mod settings_gui;
 #[cfg(windows)]
+mod welcome_gui;
+#[cfg(windows)]
 mod tray;
 mod updater;
 
@@ -121,7 +123,15 @@ fn main() {
                 return;
             }
 
-            let config = AppConfig::load();
+            let mut config = AppConfig::load();
+
+            // First run after install or update only: show friendly welcome window
+            if config.last_welcome_version.as_deref() != Some(updater::CURRENT_VERSION) {
+                welcome_gui::show_welcome_window(&config);
+                config.last_welcome_version = Some(updater::CURRENT_VERSION.to_string());
+                config.save();
+            }
+
             tray::run_tray_app(config);
         }
     }

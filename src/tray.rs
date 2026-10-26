@@ -282,10 +282,12 @@ unsafe extern "system" fn tray_wnd_proc(
                         let cfg = app.config.lock().unwrap();
                         (
                             cfg.auto_select_line,
-                            if hotkey_id == HOTKEY_SECONDARY_ID {
-                                true
-                            } else {
+                            if hotkey_id == HOTKEY_PRIMARY_ID {
+                                // Primary hotkey: convert text AND switch keyboard layout
                                 cfg.auto_switch_layout
+                            } else {
+                                // Secondary hotkey: convert text ONLY (no layout switch)
+                                false
                             },
                             cfg.restore_clipboard,
                         )
@@ -657,7 +659,7 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
     };
 
     // 6. Convert text in memory
-    let (converted, _direction) = converter::convert_text(&text);
+    let (converted, direction) = converter::convert_text(&text);
     if converted == text {
         return;
     }
@@ -666,13 +668,17 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
     clipboard::set_clipboard_text(&converted);
     thread::sleep(Duration::from_millis(2));
 
-    // 8. Ensure modifiers are released and paste converted text
+    // 8. Ensure modifiers are released and paste converted text immediately!
     clipboard::release_physical_modifiers();
     clipboard::send_ctrl_v();
 
-    // 9. Switch layout if requested (immediate, no extra sleep)
+    // 9. Switch layout if requested (direct Win32 message, 0ms overhead, no Alt key)
     if switch_layout {
-        clipboard::switch_keyboard_layout();
+        let target = match direction {
+            converter::ConversionDirection::EnglishToHebrew => clipboard::TargetLanguage::Hebrew,
+            converter::ConversionDirection::HebrewToEnglish => clipboard::TargetLanguage::English,
+        };
+        clipboard::switch_keyboard_layout(target);
     }
 
     // 10. Restore original clipboard if requested

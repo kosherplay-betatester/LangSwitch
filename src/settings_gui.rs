@@ -6,8 +6,9 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontW, DeleteObject, InvalidateRect, UpdateWindow, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
-    DEFAULT_QUALITY, FW_NORMAL, HBRUSH, HFONT, OUT_DEFAULT_PRECIS,
+    CreateFontW, CreateSolidBrush, DeleteObject, InvalidateRect, SetBkMode, SetTextColor,
+    UpdateWindow, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DEFAULT_QUALITY,
+    FW_NORMAL, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{WC_BUTTONW, WC_COMBOBOXW, WC_STATICW};
@@ -20,15 +21,15 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON,
     BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, HMENU,
     IDYES, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO, SM_CXSCREEN,
-    SM_CYSCREEN, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_SETFONT, WNDCLASSEXW,
-    WS_CHILD, WS_EX_DLGMODALFRAME, WS_OVERLAPPED, WS_POPUP, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    SM_CYSCREEN, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_CTLCOLORDLG, WM_CTLCOLORSTATIC,
+    WM_DESTROY, WM_SETFONT, WNDCLASSEXW, WS_CHILD, WS_EX_DLGMODALFRAME, WS_OVERLAPPED, WS_POPUP,
+    WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 static SETTINGS_HWND: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(ptr::null_mut());
 
 const BST_CHECKED: isize = 1;
 const BST_UNCHECKED: isize = 0;
-const COLOR_BTNFACE: u32 = 15;
 
 // Control IDs
 const ID_LBL_GRP_HOTKEYS: usize = 90;
@@ -88,6 +89,8 @@ pub fn show_settings_window(
         let hinstance = GetModuleHandleW(ptr::null());
         let class_name = to_wide("LangSwitchSettingsWindow");
 
+        let bg_brush = CreateSolidBrush(0x00FCFAF8); // Modern soft slate/off-white (#F8FAFC)
+
         let wnd_class = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             style: CS_HREDRAW | CS_VREDRAW,
@@ -97,7 +100,7 @@ pub fn show_settings_window(
             hInstance: hinstance,
             hIcon: ptr::null_mut(),
             hCursor: ptr::null_mut(),
-            hbrBackground: (COLOR_BTNFACE + 1) as HBRUSH,
+            hbrBackground: bg_brush,
             lpszMenuName: ptr::null(),
             lpszClassName: class_name.as_ptr(),
             hIconSm: ptr::null_mut(),
@@ -160,9 +163,11 @@ pub fn show_settings_window(
         let state = Box::new(SettingsState {
             on_save,
             hfont,
+            bg_brush,
             pri_vk: current_config.hotkey_primary.vk,
             sec_vk: current_config.hotkey_secondary.vk,
             is_english: is_en,
+            last_welcome_version: current_config.last_welcome_version.clone(),
         });
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
 
@@ -182,9 +187,11 @@ pub fn show_settings_window(
 struct SettingsState {
     on_save: Box<dyn Fn(AppConfig) + Send + 'static>,
     hfont: HFONT,
+    bg_brush: HBRUSH,
     pri_vk: u32,
     sec_vk: u32,
     is_english: bool,
+    last_welcome_version: Option<String>,
 }
 
 unsafe fn init_controls(
@@ -263,9 +270,9 @@ unsafe fn init_controls(
     create_ctrl(
         WC_STATICW,
         if is_en {
-            "Primary Hotkey (Hebrew <-> English Conversion):"
+            "Primary Hotkey (Convert text + Switch input layout):"
         } else {
-            "מקש ראשי (המרה בין עברית לאנגלית):"
+            "\u{200F}מקש ראשי (המרה + החלפת שפת מקלדת):"
         },
         0,
         30,
@@ -296,9 +303,9 @@ unsafe fn init_controls(
     create_ctrl(
         WC_STATICW,
         if is_en {
-            "Secondary Hotkey (Convert + Always Switch Layout):"
+            "Secondary Hotkey (Convert text only, no layout switch):"
         } else {
-            "מקש משני (המרה + החלפת שפת מקלדת תמיד):"
+            "\u{200F}מקש משני (המרה בלבד ללא החלפת מקלדת):"
         },
         0,
         30,
@@ -727,6 +734,26 @@ unsafe extern "system" fn settings_wnd_proc(
                 },
                 _ => {}
             }
+            return 0;
+        }
+        WM_CTLCOLORDLG => {
+            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+            if !state_ptr.is_null() {
+                let state = unsafe { &*state_ptr };
+                return state.bg_brush as LRESULT;
+            }
+        }
+        WM_CTLCOLORSTATIC => {
+            let hdc = wparam as HDC;
+            unsafe {
+                SetBkMode(hdc, TRANSPARENT as i32);
+                SetTextColor(hdc, 0x003B291E); // Deep slate #1E293B
+            }
+            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+            if !state_ptr.is_null() {
+                let state = unsafe { &*state_ptr };
+                return state.bg_brush as LRESULT;
+            }
         }
         WM_CLOSE => unsafe {
             DestroyWindow(hwnd);
@@ -738,6 +765,9 @@ unsafe extern "system" fn settings_wnd_proc(
                 let state = Box::from_raw(state_ptr);
                 if !state.hfont.is_null() {
                     DeleteObject(state.hfont as *mut _);
+                }
+                if !state.bg_brush.is_null() {
+                    DeleteObject(state.bg_brush as *mut _);
                 }
             }
             PostQuitMessage(0);
@@ -761,17 +791,17 @@ unsafe fn update_ui_language(hwnd: HWND, is_en: bool) {
         SetWindowTextW(hwnd, w_title.as_ptr());
     }
 
-    set_text(ID_LBL_LANG, if is_en { "Language / שפה:" } else { "שפה / Language:" });
-    set_text(ID_LBL_GRP_HOTKEYS, if is_en { " Hotkeys " } else { " מקשי קיצור (Hotkeys) " });
-    set_text(ID_LBL_PRI_TITLE, if is_en { "Primary Hotkey (Hebrew <-> English Conversion):" } else { "מקש ראשי (המרה בין עברית לאנגלית):" });
-    set_text(ID_LBL_SEC_TITLE, if is_en { "Secondary Hotkey (Convert + Always Switch Layout):" } else { "מקש משני (המרה + החלפת שפת מקלדת תמיד):" });
-    set_text(ID_LBL_GRP_OPTIONS, if is_en { " Options & Behavior " } else { " אפשרויות והתנהגות " });
-    set_text(ID_CHK_AUTO_SWITCH, if is_en { "Switch keyboard layout automatically on conversion (Primary key)" } else { "החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)" });
-    set_text(ID_CHK_AUTO_SELECT_LINE, if is_en { "Auto-select current line if no text is selected" } else { "סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט" });
-    set_text(ID_CHK_START_WINDOWS, if is_en { "Start automatically on Windows login" } else { "הפעל אוטומטית עם כניסה למערכת Windows" });
-    set_text(ID_CHK_RESTORE_CLIPBOARD, if is_en { "Restore original clipboard contents after conversion" } else { "שחזר לוח גזירים (Clipboard) מקורי לאחר ההמרה" });
-    set_text(ID_LBL_GRP_UPDATES, if is_en { " Updates & Info " } else { " עדכונים ומידע " });
-    set_text(ID_LBL_VERSION, &if is_en { format!("Current Version: v{}", CURRENT_VERSION) } else { format!("גרסה נוכחית: v{}", CURRENT_VERSION) });
+    set_text(ID_LBL_LANG, if is_en { "Language / שפה:" } else { "\u{200F}שפה / Language:" });
+    set_text(ID_LBL_GRP_HOTKEYS, if is_en { " Hotkeys " } else { "\u{200F} מקשי קיצור (Hotkeys) " });
+    set_text(ID_LBL_PRI_TITLE, if is_en { "Primary Hotkey (Convert text + Switch input layout):" } else { "\u{200F}מקש ראשי (המרה + החלפת שפת מקלדת):" });
+    set_text(ID_LBL_SEC_TITLE, if is_en { "Secondary Hotkey (Convert text only, no layout switch):" } else { "\u{200F}מקש משני (המרה בלבד ללא החלפת מקלדת):" });
+    set_text(ID_LBL_GRP_OPTIONS, if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " });
+    set_text(ID_CHK_AUTO_SWITCH, if is_en { "Switch keyboard layout automatically on conversion (Primary key)" } else { "\u{200F}החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)" });
+    set_text(ID_CHK_AUTO_SELECT_LINE, if is_en { "Auto-select current line if no text is selected" } else { "\u{200F}סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט" });
+    set_text(ID_CHK_START_WINDOWS, if is_en { "Start automatically on Windows login" } else { "\u{200F}הפעל אוטומטית עם כניסה למערכת Windows" });
+    set_text(ID_CHK_RESTORE_CLIPBOARD, if is_en { "Restore original clipboard contents after conversion" } else { "\u{200F}שחזר לוח גזירים (Clipboard) מקורי לאחר ההמרה" });
+    set_text(ID_LBL_GRP_UPDATES, if is_en { " Updates & Info " } else { "\u{200F} עדכונים ומידע " });
+    set_text(ID_LBL_VERSION, &if is_en { format!("Current Version: v{}", CURRENT_VERSION) } else { format!("\u{200F}גרסה נוכחית: v{}", CURRENT_VERSION) });
     set_text(ID_BTN_CHECK_UPDATE, if is_en { "Check for Updates" } else { "בדוק עדכונים מ-GitHub" });
     set_text(ID_BTN_RESTORE_DEFAULTS, if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" });
     set_text(ID_BTN_SAVE, if is_en { "Save & Apply" } else { "שמור והחל" });
@@ -1035,6 +1065,7 @@ unsafe fn save_and_close(hwnd: HWND) {
         start_with_windows: is_checked(ID_CHK_START_WINDOWS),
         restore_clipboard: is_checked(ID_CHK_RESTORE_CLIPBOARD),
         ui_language: ui_lang,
+        last_welcome_version: state.last_welcome_version.clone(),
     };
 
     updated_config.save();

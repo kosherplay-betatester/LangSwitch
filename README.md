@@ -9,17 +9,21 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20(X11%20%26%20Wayland)-success.svg)]()
 [![Rust](https://img.shields.io/badge/Language-Rust%202024-orange.svg)]()
 
-[English](#-english) | [עברית](#-עברית)
+[English](#-english) &nbsp;|&nbsp; [עברית](#-עברית)
 
 </div>
 
 ---
 
-## ⚡ Quick Install / התקנה מהירה בפקודה אחת
+## ⚡ Quick Install
 
 ### 🐧 Linux (Linux Mint, Fedora, Arch, Ubuntu, Debian)
-העתק והדבק שורה אחת זו בטרמינל להתקנה אוטומטית מלאה (כולל אייקון והגדרת מקש `F10` במערכת):  
-*Copy & paste this single command into your Linux terminal for full automated installation:*
+
+<div dir="rtl">
+
+העתק והדבק את הפקודה הבאה בטרמינל להתקנה אוטומטית מלאה (כולל אייקון והגדרת מקש `F10` במערכת):
+
+</div>
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
@@ -28,12 +32,21 @@ curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/mai
 ---
 
 ### 🪟 Windows (Windows 10 / 11)
-הורד והפעל ישירות את קובץ התוכנה:  
-*Download and run the ready-to-use standalone `.exe`:*
 
-👉 **[⬇️ לחץ כאן להורדת LangSwitch ל-Windows (langswitch.exe)](https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download/langswitch.exe)**
+<div dir="rtl">
 
-או להורדה והפעלה מהירה ב-PowerShell:
+הורד והפעל ישירות את קובץ התוכנה:
+
+</div>
+
+👉 **[Download LangSwitch for Windows (langswitch.exe)](https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download/langswitch.exe)**
+
+<div dir="rtl">
+
+או באמצעות PowerShell:
+
+</div>
+
 ```powershell
 irm https://github.com/kosherplay-betatester/LangSwitch/releases/latest/download/langswitch.exe -OutFile "$env:TEMP\langswitch.exe"; & "$env:TEMP\langswitch.exe"
 ```
@@ -72,7 +85,7 @@ LangSwitch works out-of-the-box on all major Linux distributions:
 * **Arch Linux** (KDE Plasma 6, Hyprland, Sway, i3)
 * **Ubuntu / Debian** (GNOME Wayland & X11)
 
-#### 🚀 1-Step Friendly Automated Installation:
+#### 🚀 Automated Installation:
 ```bash
 curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
 ```
@@ -97,6 +110,8 @@ langswitch --install
 * **X11**: `xclip` and `xdotool`.
 
 ---
+
+<div dir="rtl">
 
 ## 🇮🇱 עברית
 
@@ -130,26 +145,42 @@ LangSwitch פועלת באופן חלק בכל הפצות הלינוקס הפו�
 * **Arch Linux** (KDE Plasma 6, Hyprland, Sway, i3)
 * **Ubuntu / Debian** (GNOME Wayland & X11)
 
+#### מדוע בלינוקס אין צורך בסינון קיצורים קשיח מראש?
+בניגוד ל-Windows שבה קיצורי הדרך אחידים וקבועים בכל המחשבים, בלינוקס לכל הפצה ולכל סביבת שולחן עבודה (GNOME, Cinnamon, KDE, Hyprland) יש קיצורי מערכת שונים לחלוטין הניתנים לשינוי מלא על ידי המשתמש.  
+מכיוון שסביבות הלינוקס מנהלות את הקיצורים באופן עצמאי, **מערכת ההפעלה עצמה מזהירה ומתריעה בזמן אמת** אם נבחר מקש קיצור שכבר תפוס על ידי יישום אחר.
+
 #### 🚀 התקנה אוטומטית וידידותית בפקודה אחת:
-הרץ פקודה זו בטרמינל כדי להתקין את LangSwitch, להטמיע את האייקון בתפריט ולהגדיר אוטומטית את קיצורי הדרך `F10` ו-`Shift+F10` ב-GNOME (Fedora / Ubuntu) וב-Cinnamon (Linux Mint):
+הרץ פקודה זו בטרמינל כדי להתקין את LangSwitch, להטמיע את האייקון בתפריט ולהגדיר אוטומטית את קיצורי הדרך `F10` ו-`Shift+F10` ב-GNOME וב-Cinnamon:
+
+<div dir="ltr">
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
 ```
 
+</div>
+
 #### פקודות שימוש בלינוקס:
+
+<div dir="ltr">
+
 ```bash
-# המרת טקסט מסומן או שורה נוכחית
+# Convert selected text or current line
 langswitch --convert
 
-# המרת טקסט והחלפת שפת קלט במקלדת
+# Convert text and switch keyboard layout
 langswitch --convert-and-switch
 
-# בדיקת סביבה (שרת תצוגה X11/Wayland וכלים מותקנים)
+# Check environment diagnostics
 langswitch --status
 
-# התקנה עצמית, הוספת אייקון והגדרת קיצורי מקשים אוטומטית
+# Install desktop icon and configure shortcuts
 langswitch --install
 ```
+
+</div>
+
+</div>
 
 ---
 
@@ -169,5 +200,5 @@ cargo build --release
 ---
 
 ## 📄 License / רישיון
-MIT License. Open source for the community.
+MIT License. Open source for the community.  
 קוד פתוח תחת רישיון MIT.

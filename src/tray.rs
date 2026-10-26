@@ -454,6 +454,11 @@ unsafe fn show_tray_menu(hwnd: HWND, app: &TrayApp) {
         GetCursorPos(&mut pt);
     }
 
+    let is_english = {
+        let cfg = app.config.lock().unwrap();
+        cfg.ui_language == "en"
+    };
+
     let hmenu = unsafe { CreatePopupMenu() };
 
     let title_text = format!("LangSwitch v{}", CURRENT_VERSION);
@@ -468,7 +473,7 @@ unsafe fn show_tray_menu(hwnd: HWND, app: &TrayApp) {
         AppendMenuW(hmenu, MF_SEPARATOR as u32, 0, ptr::null());
     }
 
-    let settings_text = to_wide("הגדרות... (Settings)");
+    let settings_text = to_wide(if is_english { "Settings..." } else { "הגדרות..." });
     unsafe {
         AppendMenuW(
             hmenu,
@@ -480,26 +485,26 @@ unsafe fn show_tray_menu(hwnd: HWND, app: &TrayApp) {
 
     let is_paused = app.is_paused.load(Ordering::SeqCst);
     let pause_text = if is_paused {
-        to_wide("המשך פעילות (Resume)")
+        to_wide(if is_english { "Resume" } else { "המשך פעילות" })
     } else {
-        to_wide("השהה (Pause)")
+        to_wide(if is_english { "Pause" } else { "השהה" })
     };
     unsafe {
         AppendMenuW(hmenu, MF_STRING as u32, ID_TRAY_PAUSE, pause_text.as_ptr());
     }
 
-    let update_text = to_wide("בדוק עדכונים (Check for Updates)");
+    let update_text = to_wide(if is_english { "Check for Updates..." } else { "בדוק עדכונים..." });
     unsafe {
         AppendMenuW(hmenu, MF_STRING as u32, ID_TRAY_UPDATE, update_text.as_ptr());
     }
 
-    let about_text = to_wide("אודות (About)");
+    let about_text = to_wide(if is_english { "About..." } else { "אודות..." });
     unsafe {
         AppendMenuW(hmenu, MF_STRING as u32, ID_TRAY_ABOUT, about_text.as_ptr());
         AppendMenuW(hmenu, MF_SEPARATOR as u32, 0, ptr::null());
     }
 
-    let exit_text = to_wide("יציאה (Exit)");
+    let exit_text = to_wide(if is_english { "Exit" } else { "יציאה" });
     unsafe {
         AppendMenuW(hmenu, MF_STRING as u32, ID_TRAY_EXIT, exit_text.as_ptr());
 

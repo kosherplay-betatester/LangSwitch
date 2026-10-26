@@ -1,53 +1,145 @@
 # ⚡ LangSwitch
 
-> **כלי קל משקל, יעיל ומהיר כברק להמרת טקסט שנכתב בטעות בשפה הלא נכונה (עברית ↔ אנגלית)**  
-> נכתב ב-**Rust** טהור עם ממשק Windows API ישיר (Win32), צריכת משאבים אפסית (0% CPU במצב המתנה) ותגובה מיידית.
+<div align="center">
+
+**Lightweight, Blazing Fast Hebrew ↔ English Layout Text Switcher**  
+*כלי קל משקל, יעיל ומהיר כברק להמרת טקסט שנכתב בשפה הפוכה (עברית ↔ אנגלית)*
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20(X11%20%26%20Wayland)-success.svg)]()
+[![Rust](https://img.shields.io/badge/Language-Rust%202024-orange.svg)]()
+
+[English](#-english) | [עברית](#-עברית)
+
+</div>
 
 ---
 
-## 🚀 תכונות עיקריות
+## 🌐 English
 
-- **המרה מיידית בלחיצת מקש (ברירת מחדל: `F10`)**:
-  - המרת טקסט מסומן (מילה, משפט, פסקה או הכל).
-  - **בחירת שורה אוטומטית חכמה**: אם אין טקסט מסומן, האפליקציה בוחרת אוטומטית את השורה עליה עומד הסמן וממירה אותה (בדומה ל-3 קליקים בעכבר או `Home` + `Shift+End`).
-- **טיפול חכם באותיות גדולות (Case Normalization)**:
-  - אם הקלדת באנגלית באותיות גדולות או מעורבות (כגון `YexY` או `YEXY`), התוכנה הופכת קודם ל-lowercase (`yexy`) ואז ממירה לעברית (`טקסט`).
-  - בהמרה מעברית לאנגלית (כגון `אקסא`), התוצאה מומרת תמיד ל-lowercase (`text`).
-- **החלפת שפת מקלדת אוטומטית**:
-  - אפשרות בהגדרות להחלפת שפת הקלט אוטומטית בעת המרה (בדומה ללחיצה על `Alt+Shift`).
-  - **מקש קיצור משני ייעודי (ברירת מחדל: `Shift+F10`)**: ממיר את הטקסט **וגם מחליף את שפת המקלדת תמיד**, אפילו אם ההגדרה האוטומטית כבויה!
-- **תמיכה בכל מקשי המקלדת ומניעת התנגשויות דינמית (Windows Conflict Filter)**:
-  - תפריט בחירה עשיר הכולל את **כל מקשי המקלדת**: מקשי פונקציות F1–F12, אותיות A–Z, מספרים, מקשי עריכה (Space, Tab, Enter, Esc, Delete, Insert, Home, End ועוד), Numpad ומקשי סימנים.
-  - **סינון דינמי חכם של קיצורי Windows**: כאשר מסמנים שילובי מקשים כגון `Shift + Win`, התפריט מתעדכן מיידית ומסיר מקשים שמתנגשים עם קיצורי מערכת של Windows (למשל `S` מוסר כי `Win + Shift + S` שייך ל-Snipping Tool של Windows, `L` מוסר עבור נעילת מסך, `F4` מוסר עבור `Alt + F4` וכו').
-- **אייקון אפליקציה מעוצב**:
-  - אייקון רב-שכבתי (256x256 עד 16x16) מוטמע ישירות בתוך קובץ ה-`.exe` ובשורת המשימות / מגש המערכת.
-- **אשף התקנה והסרה מלא (Windows Add/Remove Programs)**:
-  - בהפעלה ראשונה מוצעת אפשרות התקנה אוטומטית לתיקיית התוכניות (`Program Files` / `Programs`), יצירת קיצור דרך בתפריט התחל ורישום מלא בלוח הבקרה / רשימת "אפליקציות מותקנות" של Windows.
-  - תמיכה מלאה בהסרת התקנה נקייה דרך Windows (`--uninstall`).
-- **אפס ניצול משאבים (0.00% CPU במנוחה)**:
-  - ללא לולאות polling וללא תהליכים מיותרים ברקע.
-  - נשען ישירות על Windows Event Message Loop ו-`RegisterHotKey`.
-- **מגש מערכת (System Tray)**:
-  - תפריט קליק ימני: **הגדרות**, **השהה / המשך**, **בדיקת עדכונים**, **אודות**, **יציאה**.
-  - **מצב השהיה (Pause)**: ביטול מוחלט של האזנה למקשים (Unregister Hotkeys) ללא שום פעילות ברקע עד להפעלה מחדש.
-- **בדיקת עדכונים מובנית מ-GitHub Releases**.
+### Overview
+**LangSwitch** is an ultra-fast, zero-polling, native utility written in pure **Rust**. Inspired by the classic **LangOver**, it instantly converts accidentally mistyped text between Hebrew and English with a single keypress (default: `F10`), with full support for both **Windows** (10/11) and **Linux** (**X11 & Wayland** across Linux Mint, Fedora, Arch Linux, Ubuntu, etc.).
+
+### ✨ Features
+* **Instant Hotkey Conversion (`F10`)**:
+  * Converts highlighted text (word, sentence, paragraph, or full text).
+  * **Smart Auto-Line Selection**: If no text is selected, it automatically selects the current line (similar to mouse triple-click or `Home` + `Shift+End`) and converts it.
+* **Smart Letter Case Normalization**:
+  * Typing uppercase or mixed English (`YexY` or `YEXY`) automatically converts to lowercase Hebrew (`טקסט`).
+  * Converting Hebrew (`אקסא`) to English produces clean lowercase (`text`).
+* **Keyboard Layout Auto-Switching**:
+  * Configurable option to switch input language automatically upon conversion (`Alt+Shift`).
+  * **Dedicated Secondary Hotkey (`Shift+F10`)**: Always converts text **and** toggles the layout regardless of the global setting.
+* **Windows Shortcut Conflict Prevention**:
+  * In the Windows Settings GUI, dangerous combinations (such as `Win+Shift+S`, `Win+L`, `Alt+F4`, `Ctrl+C`) are dynamically filtered to prevent conflicting with Windows system shortcuts.
+* **Smart Installation with Conditional Admin Elevation**:
+  * First-run setup automatically creates Start Menu shortcuts and registers LangSwitch in Windows "Installed Apps" / Control Panel (`--uninstall` supported).
+  * **Elevates as Admin only when strictly necessary** (e.g. copying into `Program Files`); otherwise installs cleanly without intrusive UAC prompts.
+* **0.00% Idle CPU & Minimal RAM**:
+  * Event-driven Win32 loop on Windows; lightweight CLI triggers or daemon on Linux. Zero polling loops.
+* **Full Bilingual Support**:
+  * Settings dialog and tray menus fully available in both **Hebrew** and **English**.
+
+### 🐧 Linux Compatibility (X11 & Wayland)
+LangSwitch works out-of-the-box on all major Linux distributions:
+* **Linux Mint** (Cinnamon / MATE / XFCE - X11)
+* **Fedora** (GNOME - Wayland)
+* **Arch Linux** (KDE Plasma 6, Hyprland, Sway, i3)
+* **Ubuntu / Debian** (GNOME Wayland & X11)
+
+#### Why Linux doesn't need hardcoded shortcut conflict filters:
+Unlike Windows where system shortcuts are globally uniform, every Linux distribution and desktop environment (DE) has its own customizable shortcuts (e.g. `Ctrl+Alt+T` for terminal in Mint/Ubuntu, `Super` in GNOME, custom `hyprland.conf` in Arch).  
+Because Linux Desktop Environments have their own built-in shortcut managers, **the system itself warns you if a chosen shortcut conflicts with an existing one**.
+
+#### Linux Commands:
+```bash
+# Convert selected text or current line
+langswitch --convert
+
+# Convert text and switch keyboard layout
+langswitch --convert-and-switch
+
+# Diagnose environment (Display server, installed clipboard/keystroke tools)
+langswitch --status
+
+# Install desktop menu entry
+langswitch --install-desktop
+```
+
+#### Recommended Tools:
+* **Wayland**: `wl-clipboard` (for clipboard) and `wtype` or `ydotool` (for simulated keystrokes).
+* **X11**: `xclip` and `xdotool`.
 
 ---
 
-## 🛠️ דרישות מערכת ובנייה
+## 🇮🇱 עברית
 
-- מערכת הפעלה: Windows 10 / Windows 11 (64-bit)
-- לבנייה מקוד מקור נדרש: Rust 1.80+ (Toolchain `x86_64-pc-windows-msvc`)
+### סקירה כללית
+**LangSwitch** הוא כלי קל משקל ומהיר כברק שנכתב ב-**Rust** טהור. בהשראת התוכנה האהובה **LangOver**, הוא ממיר באופן מיידי טקסט שנכתב בטעות בשפה ההפוכה (עברית ↔ אנגלית) בלחיצת מקש אחת (ברירת מחדל: `F10`), עם תמיכה מלאה ב-**Windows** (10/11) ו-**Linux** (תמיכה מלאה הן ב-**X11** והן ב-**Wayland** ב-Linux Mint, Fedora, Arch Linux, Ubuntu ועוד).
 
-### קומפילציה:
+### ✨ תכונות עיקריות
+* **המרה מהירה בלחיצת מקש (`F10`)**:
+  * המרת טקסט מסומן (מילה, משפט, פסקה או הכל).
+  * **בחירת שורה אוטומטית חכמה**: אם אין טקסט מסומן, האפליקציה בוחרת אוטומטית את השורה עליה עומד הסמן וממירה אותה (בדומה ל-3 קליקים בעכבר או `Home` + `Shift+End`).
+* **טיפול חכם באותיות גדולות (Case Normalization)**:
+  * הקלדת אנגלית באותיות גדולות (`YexY` או `YEXY`) מומרת תחילה ל-lowercase (`yexy`) ואז לעברית (`טקסט`).
+  * המרה מעברית (`אקסא`) לאנגלית מייצרת תמיד אותיות קטנות (`text`).
+* **החלפת שפת מקלדת אוטומטית**:
+  * אפשרות בהגדרות להחלפת שפת הקלט אוטומטית בעת המרה (`Alt+Shift`).
+  * **מקש קיצור משני ייעודי (`Shift+F10`)**: ממיר את הטקסט **וגם מחליף את שפת המקלדת תמיד**, גם אם ההגדרה האוטומטית כבויה.
+* **מניעת התנגשויות קיצורים ב-Windows**:
+  * תפריט בחירת המקשים מסנן באופן דינמי קיצורי מערכת של Windows (כגון `Win+Shift+S` ל-Snipping Tool, `Win+L`, `Alt+F4` ועוד).
+* **התקנה חכמה ובקשת הרשאות מנהל רק במידת הצורך**:
+  * בהפעלה ראשונה מוצעת התקנה מסודרת, יצירת קיצור דרך בתפריט התחל ורישום מלא ב"אפליקציות מותקנות" / לוח הבקרה של Windows (`--uninstall`).
+  * **בקשת הרשאות מנהל (UAC Administrator) מתבצעת רק אם יש צורך אמיתי** (כגון העתקה ל-`Program Files`), ללא חלונות אישור מיותרים.
+* **0.00% ניצול מעבד וצריכת זיכרון אפסית**:
+  * מבוסס אירועים (Event-driven) ישירות מול מערכת ההפעלה, ללא לולאות polling ברקע.
+* **ממשק דו-לשוני מלא**:
+  * חלון ההגדרות ותפריט מגש המערכת (Tray) זמינים בעברית ובאנגלית.
+
+### 🐧 תמיכה בלינוקס (X11 ו-Wayland)
+LangSwitch פועלת באופן חלק בכל הפצות הלינוקס הפופולריות:
+* **Linux Mint** (Cinnamon / MATE / XFCE - X11)
+* **Fedora** (GNOME - Wayland)
+* **Arch Linux** (KDE Plasma 6, Hyprland, Sway, i3)
+* **Ubuntu / Debian** (GNOME Wayland & X11)
+
+#### מדוע בלינוקס אין צורך בסינון קיצורים קשיח מראש?
+בניגוד ל-Windows שבה קיצורי הדרך אחידים וקבועים בכל המחשבים, בלינוקס לכל הפצה ולכל סביבת שולחן עבודה (GNOME, Cinnamon, KDE, Hyprland) יש קיצורי מערכת שונים לחלוטין הניתנים לשינוי מלא על ידי המשתמש.  
+מכיוון שסביבות הלינוקס מנהלות את הקיצורים באופן עצמאי, **מערכת ההפעלה עצמה מזהירה ומתריעה בזמן אמת** אם נבחר מקש קיצור שכבר תפוס על ידי יישום אחר.
+
+#### פקודות שימוש בלינוקס:
+```bash
+# המרת טקסט מסומן או שורה נוכחית
+langswitch --convert
+
+# המרת טקסט והחלפת שפת קלט במקלדת
+langswitch --convert-and-switch
+
+# בדיקת סביבה (שרת תצוגה X11/Wayland וכלים מותקנים)
+langswitch --status
+
+# התקנת קיצור דרך בתפריט היישומים
+langswitch --install-desktop
+```
+
+---
+
+## 🛠️ Build from Source / בנייה מקוד מקור
+
+### Requirements / דרישות:
+* **Rust 1.80+** (Edition 2024)
+* **Windows**: `x86_64-pc-windows-msvc`
+* **Linux**: `x86_64-unknown-linux-gnu`
+
+### Compilation / קומפילציה:
 ```bash
 cargo build --release
 ```
-הקובץ הבינארי ייווצר בנתיב: `target/release/langswitch.exe`.
+הקובץ הבינארי ייווצר בנתיב `target/release/langswitch.exe` (ב-Windows) או `target/release/langswitch` (ב-Linux).
 
 ---
 
-## 📄 רישיון
-
+## 📄 License / רישיון
+MIT License. Open source for the community.
 קוד פתוח תחת רישיון MIT.
-פותח עבור קהילת המשתמשים בעברית ואנגלית בישראל ובעולם.

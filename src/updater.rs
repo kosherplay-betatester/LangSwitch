@@ -25,25 +25,49 @@ pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn check_for_updates() -> UpdateCheckResult {
     let url = "https://api.github.com/repos/kosherplay-betatester/LangSwitch/releases/latest";
 
-    let mut response = match ureq::get(url)
-        .header("User-Agent", "LangSwitch-App")
-        .header("Accept", "application/vnd.github.v3+json")
-        .call()
-    {
-        Ok(res) => res,
-        Err(e) => {
-            let err_str = e.to_string();
-            if err_str.contains("404") {
-                return UpdateCheckResult::NoReleasesFound;
+    #[cfg(windows)]
+    let body_str = {
+        let mut response = match ureq::get(url)
+            .header("User-Agent", "LangSwitch-App")
+            .header("Accept", "application/vnd.github.v3+json")
+            .call()
+        {
+            Ok(res) => res,
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("404") {
+                    return UpdateCheckResult::NoReleasesFound;
+                }
+                return UpdateCheckResult::Error(format!("Network error: {}", e));
             }
-            return UpdateCheckResult::Error(format!("Network error: {}", e));
+        };
+
+        let mut body = String::new();
+        if let Err(e) = response.body_mut().as_reader().read_to_string(&mut body) {
+            return UpdateCheckResult::Error(format!("Failed reading response: {}", e));
         }
+        body
     };
 
-    let mut body_str = String::new();
-    if let Err(e) = response.body_mut().as_reader().read_to_string(&mut body_str) {
-        return UpdateCheckResult::Error(format!("Failed reading response: {}", e));
-    }
+    #[cfg(not(windows))]
+    let body_str = {
+        let output = match std::process::Command::new("curl")
+            .args(["-sSL", "-H", "User-Agent: LangSwitch-App", "-H", "Accept: application/vnd.github.v3+json", url])
+            .output()
+        {
+            Ok(out) => out,
+            Err(e) => return UpdateCheckResult::Error(format!("Failed running curl: {}", e)),
+        };
+
+        if !output.status.success() {
+            return UpdateCheckResult::Error("Curl request failed".to_string());
+        }
+
+        match String::from_utf8(output.stdout) {
+            Ok(s) => s,
+            Err(e) => return UpdateCheckResult::Error(format!("UTF-8 error: {}", e)),
+        }
+    };
 
     let release: GithubRelease = match serde_json::from_str(&body_str) {
         Ok(r) => r,

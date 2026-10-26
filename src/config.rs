@@ -1,13 +1,24 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+#[cfg(windows)]
 use windows_sys::Win32::System::Registry::{
     HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW,
     RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
 };
+#[cfg(windows)]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
-// Standard function keys
+#[cfg(not(windows))]
+pub const MOD_ALT: u32 = 0x0001;
+#[cfg(not(windows))]
+pub const MOD_CONTROL: u32 = 0x0002;
+#[cfg(not(windows))]
+pub const MOD_SHIFT: u32 = 0x0004;
+#[cfg(not(windows))]
+pub const MOD_WIN: u32 = 0x0008;
+
+// Standard and Extended function keys F1..F24
 pub const VK_F1: u32 = 0x70;
 pub const VK_F2: u32 = 0x71;
 pub const VK_F3: u32 = 0x72;
@@ -20,6 +31,18 @@ pub const VK_F9: u32 = 0x78;
 pub const VK_F10: u32 = 0x79;
 pub const VK_F11: u32 = 0x7A;
 pub const VK_F12: u32 = 0x7B;
+pub const VK_F13: u32 = 0x7C;
+pub const VK_F14: u32 = 0x7D;
+pub const VK_F15: u32 = 0x7E;
+pub const VK_F16: u32 = 0x7F;
+pub const VK_F17: u32 = 0x80;
+pub const VK_F18: u32 = 0x81;
+pub const VK_F19: u32 = 0x82;
+pub const VK_F20: u32 = 0x83;
+pub const VK_F21: u32 = 0x84;
+pub const VK_F22: u32 = 0x85;
+pub const VK_F23: u32 = 0x86;
+pub const VK_F24: u32 = 0x87;
 
 // Navigation & Editing keys
 pub const VK_BACK: u32 = 0x08;
@@ -71,8 +94,8 @@ pub const VK_OEM_7: u32 = 0xDE; // ' "
 /// Comprehensive list of keyboard keys available for hotkeys
 pub const ALL_KEYBOARD_KEYS: &[(&str, u32)] = &[
     // Recommended
-    ("F10 (מומלץ)", VK_F10),
-    // Function keys
+    ("F10 (מומלץ / Recommended)", VK_F10),
+    // Standard Function keys
     ("F1", VK_F1),
     ("F2", VK_F2),
     ("F3", VK_F3),
@@ -84,6 +107,19 @@ pub const ALL_KEYBOARD_KEYS: &[(&str, u32)] = &[
     ("F9", VK_F9),
     ("F11", VK_F11),
     ("F12", VK_F12),
+    // Extended Function keys
+    ("F13", VK_F13),
+    ("F14", VK_F14),
+    ("F15", VK_F15),
+    ("F16", VK_F16),
+    ("F17", VK_F17),
+    ("F18", VK_F18),
+    ("F19", VK_F19),
+    ("F20", VK_F20),
+    ("F21", VK_F21),
+    ("F22", VK_F22),
+    ("F23", VK_F23),
+    ("F24", VK_F24),
     // Letters A-Z
     ("A", 0x41),
     ("B", 0x42),
@@ -174,17 +210,6 @@ pub fn is_windows_conflict(modifiers: u32, vk: u32) -> bool {
     let has_alt = modifiers & MOD_ALT != 0;
     let has_shift = modifiers & MOD_SHIFT != 0;
     let has_win = modifiers & MOD_WIN != 0;
-
-    // 0. Standalone keys (no modifiers)
-    if modifiers == 0 {
-        // Disallow normal typing keys (letters, numbers, space, enter, punctuation)
-        // Only allow function keys, pause, insert, scroll lock
-        let is_allowed_standalone = matches!(
-            vk,
-            VK_F1..=VK_F12 | VK_PAUSE | VK_INSERT | VK_SCROLL
-        );
-        return !is_allowed_standalone;
-    }
 
     // 1. Windows Key Combinations
     if has_win {
@@ -322,7 +347,7 @@ impl HotkeyConfig {
         }
 
         let key_name = match self.vk {
-            0x70..=0x7B => format!("F{}", self.vk - 0x70 + 1),
+            0x70..=0x87 => format!("F{}", self.vk - 0x70 + 1),
             0x41..=0x5A => ((self.vk as u8) as char).to_string(),
             0x30..=0x39 => ((self.vk as u8) as char).to_string(),
             0x60..=0x69 => format!("Num {}", self.vk - 0x60),
@@ -365,6 +390,10 @@ impl HotkeyConfig {
     }
 }
 
+fn default_ui_language() -> String {
+    "he".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub hotkey_primary: HotkeyConfig,
@@ -373,6 +402,8 @@ pub struct AppConfig {
     pub auto_select_line: bool,
     pub start_with_windows: bool,
     pub restore_clipboard: bool,
+    #[serde(default = "default_ui_language")]
+    pub ui_language: String, // "he" or "en"
 }
 
 impl Default for AppConfig {
@@ -392,20 +423,33 @@ impl Default for AppConfig {
             auto_select_line: true,
             start_with_windows: false,
             restore_clipboard: false,
+            ui_language: "he".to_string(),
         }
     }
 }
 
 impl AppConfig {
     pub fn config_path() -> PathBuf {
-        if let Ok(app_data) = std::env::var("APPDATA") {
-            let mut p = PathBuf::from(app_data);
-            p.push("LangSwitch");
-            p.push("config.json");
-            p
-        } else {
-            PathBuf::from("config.json")
+        #[cfg(windows)]
+        {
+            if let Ok(app_data) = std::env::var("APPDATA") {
+                let mut p = PathBuf::from(app_data);
+                p.push("LangSwitch");
+                p.push("config.json");
+                return p;
+            }
         }
+        #[cfg(not(windows))]
+        {
+            if let Ok(home) = std::env::var("HOME") {
+                let mut p = PathBuf::from(home);
+                p.push(".config");
+                p.push("langswitch");
+                p.push("config.json");
+                return p;
+            }
+        }
+        PathBuf::from("config.json")
     }
 
     pub fn load() -> Self {
@@ -436,6 +480,7 @@ impl AppConfig {
     }
 }
 
+#[cfg(windows)]
 const RUN_KEY: &[u16] = &[
     'S' as u16, 'o' as u16, 'f' as u16, 't' as u16, 'w' as u16, 'a' as u16, 'r' as u16,
     'e' as u16, '\\' as u16, 'M' as u16, 'i' as u16, 'c' as u16, 'r' as u16, 'o' as u16,
@@ -446,11 +491,13 @@ const RUN_KEY: &[u16] = &[
     'R' as u16, 'u' as u16, 'n' as u16, 0,
 ];
 
+#[cfg(windows)]
 const APP_NAME: &[u16] = &[
     'L' as u16, 'a' as u16, 'n' as u16, 'g' as u16, 'S' as u16, 'w' as u16, 'i' as u16,
     't' as u16, 'c' as u16, 'h' as u16, 0,
 ];
 
+#[cfg(windows)]
 pub fn is_startup_enabled() -> bool {
     unsafe {
         let mut key = std::ptr::null_mut();
@@ -481,6 +528,17 @@ pub fn is_startup_enabled() -> bool {
     }
 }
 
+#[cfg(not(windows))]
+pub fn is_startup_enabled() -> bool {
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home).join(".config/autostart/langswitch.desktop");
+        p.exists()
+    } else {
+        false
+    }
+}
+
+#[cfg(windows)]
 pub fn set_startup_enabled(enable: bool) -> bool {
     unsafe {
         let mut key = std::ptr::null_mut();
@@ -519,6 +577,24 @@ pub fn set_startup_enabled(enable: bool) -> bool {
     }
 }
 
+#[cfg(not(windows))]
+pub fn set_startup_enabled(enable: bool) -> bool {
+    if let Ok(home) = std::env::var("HOME") {
+        let autostart_dir = PathBuf::from(home).join(".config/autostart");
+        let desktop_file = autostart_dir.join("langswitch.desktop");
+        if enable {
+            let _ = fs::create_dir_all(&autostart_dir);
+            let content = "[Desktop Entry]\nType=Application\nName=LangSwitch\nExec=langswitch --convert\nHidden=false\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n";
+            fs::write(desktop_file, content).is_ok()
+        } else {
+            let _ = fs::remove_file(desktop_file);
+            true
+        }
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,11 +624,9 @@ mod tests {
     }
 
     #[test]
-    fn test_no_modifier_blocks_letters() {
-        // Normal typing key 'A' without modifier is blocked
-        assert!(is_windows_conflict(0, 0x41));
-        // But with Ctrl + Shift it is allowed
-        assert!(!is_windows_conflict(MOD_CONTROL | MOD_SHIFT, 0x41));
+    fn test_all_keys_available_without_modifiers() {
+        // Key 'A' without modifier is NOT a Windows shortcut conflict
+        assert!(!is_windows_conflict(0, 0x41));
     }
 
     #[test]

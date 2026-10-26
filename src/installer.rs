@@ -144,6 +144,14 @@ fn mark_first_run_prompted(path: &Path) {
     }
 }
 
+unsafe extern "system" {
+    fn IsUserAnAdmin() -> i32;
+}
+
+pub fn is_running_as_admin() -> bool {
+    unsafe { IsUserAnAdmin() != 0 }
+}
+
 pub fn install_app() {
     let current_exe = match std::env::current_exe() {
         Ok(e) => e,
@@ -152,56 +160,73 @@ pub fn install_app() {
 
     let target_dir = get_default_install_dir();
 
-    // Try creating the directory directly; if permission denied, elevate via UAC!
-    if let Err(e) = fs::create_dir_all(&target_dir) {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            // Relaunch with 'runas' to elevate to Administrator
-            elevate_and_install(&current_exe);
-            std::process::exit(0);
-        } else {
-            // Fallback to LocalAppData\Programs\LangSwitch
-            if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                let mut alt = PathBuf::from(local);
-                alt.push("Programs");
-                alt.push("LangSwitch");
-                let _ = fs::create_dir_all(&alt);
-                do_install_copy(&current_exe, &alt);
+    // 1. Try to install directly first without requesting admin permissions
+    match try_install(&current_exe, &target_dir) {
+        Ok(()) => {
+            // Succeeded directly! No admin elevation was needed.
+            return;
+        }
+        Err(e) => {
+            // 2. ONLY if really needed (PermissionDenied / OS error 5), request admin elevation
+            let is_permission_error = e.kind() == std::io::ErrorKind::PermissionDenied
+                || e.raw_os_error() == Some(5);
+
+            if is_permission_error && !is_running_as_admin() {
+                let elevated = elevate_and_install(&current_exe);
+                if elevated {
+                    std::process::exit(0);
+                }
+
+                // If user denied UAC elevation, offer fallback to LocalAppData (no admin needed)
+                let msg = to_wide(
+                    "לא אושרו הרשאות מנהל (Administrator) להתקנה ב-Program Files.\n\n\
+                    האם ברצונך להתקין את האפליקציה בתיקיית המשתמש המקומית (AppData\\Programs)\n\
+                    ללא צורך בהרשאות מנהל?",
+                );
+                let title = to_wide("הרשאות מנהל נדחו");
+                let ans = unsafe {
+                    MessageBoxW(
+                        ptr::null_mut(),
+                        msg.as_ptr(),
+                        title.as_ptr(),
+                        MB_YESNO | MB_ICONQUESTION,
+                    )
+                };
+
+                if ans == IDYES {
+                    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                        let user_target_dir = PathBuf::from(local).join("Programs").join("LangSwitch");
+                        if try_install(&current_exe, &user_target_dir).is_ok() {
+                            return;
+                        }
+                    }
+                }
                 return;
             }
+
+            // Other error
+            let msg = to_wide(&format!("שגיאה בהעתקת קבצי ההתקנה:\n{}\n\nנתיב יעד: {}", e, target_dir.display()));
+            let title = to_wide("שגיאת התקנה");
+            unsafe {
+                MessageBoxW(ptr::null_mut(), msg.as_ptr(), title.as_ptr(), MB_OK | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR);
+            }
         }
-    } else {
-        do_install_copy(&current_exe, &target_dir);
     }
 }
 
-fn elevate_and_install(current_exe: &Path) {
-    let exe_wide = to_wide(&current_exe.to_string_lossy());
-    let op_wide = to_wide("runas");
-    let param_wide = to_wide("--install-now");
-    unsafe {
-        ShellExecuteW(
-            ptr::null_mut(),
-            op_wide.as_ptr(),
-            exe_wide.as_ptr(),
-            param_wide.as_ptr(),
-            ptr::null(),
-            SW_SHOW,
-        );
-    }
-}
-
-pub fn do_install_copy(source_exe: &Path, target_dir: &Path) {
+pub fn try_install(source_exe: &Path, target_dir: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(target_dir)?;
     let target_exe = target_dir.join("langswitch.exe");
 
-    // Copy executable
-    if let Err(e) = fs::copy(source_exe, &target_exe) {
-        let msg = to_wide(&format!("שגיאה בהעתקת קבצי ההתקנה:\n{}", e));
-        let title = to_wide("שגיאת התקנה");
-        unsafe {
-            MessageBoxW(ptr::null_mut(), msg.as_ptr(), title.as_ptr(), MB_OK | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR);
-        }
-        return;
+    // If existing executable is running or locked, try renaming to .old first
+    if target_exe.exists() {
+        let old_exe = target_dir.join("langswitch.exe.old");
+        let _ = fs::remove_file(&old_exe);
+        let _ = fs::rename(&target_exe, &old_exe);
     }
+
+    // Copy executable
+    fs::copy(source_exe, &target_exe)?;
 
     // Register in Windows "Programs and Features" / "Installed Apps"
     register_uninstall_entry(target_dir, &target_exe);
@@ -213,7 +238,7 @@ pub fn do_install_copy(source_exe: &Path, target_dir: &Path) {
     set_startup_enabled(true);
 
     let msg = to_wide(
-        "LangSwitch הותקנה בהצלחה במחשב!\n\n\
+        "LangSwitch הותקנה בהצלחה במחשב! ⚡\n\n\
         - נוסף קיצור דרך בתפריט התחל.\n\
         - התוכנה מופיעה כעת ברשימת האפליקציות של Windows (לוח הבקרה / הגדרות).\n\
         - התוכנה תופעל כעת מהתיקייה המותקנת.",
@@ -226,6 +251,34 @@ pub fn do_install_copy(source_exe: &Path, target_dir: &Path) {
     // Launch installed app and exit current instance
     let _ = Command::new(&target_exe).spawn();
     std::process::exit(0);
+}
+
+fn elevate_and_install(current_exe: &Path) -> bool {
+    let exe_wide = to_wide(&current_exe.to_string_lossy());
+    let op_wide = to_wide("runas");
+    let param_wide = to_wide("--install-now");
+    let res = unsafe {
+        ShellExecuteW(
+            ptr::null_mut(),
+            op_wide.as_ptr(),
+            exe_wide.as_ptr(),
+            param_wide.as_ptr(),
+            ptr::null(),
+            SW_SHOW,
+        )
+    };
+    // ShellExecute returns > 32 on success (UAC approved)
+    (res as usize) > 32
+}
+
+pub fn do_install_copy(source_exe: &Path, target_dir: &Path) {
+    if let Err(e) = try_install(source_exe, target_dir) {
+        let msg = to_wide(&format!("שגיאה בהעתקת קבצי ההתקנה:\n{}", e));
+        let title = to_wide("שגיאת התקנה");
+        unsafe {
+            MessageBoxW(ptr::null_mut(), msg.as_ptr(), title.as_ptr(), MB_OK | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR);
+        }
+    }
 }
 
 fn register_uninstall_entry(install_dir: &Path, exe_path: &Path) {

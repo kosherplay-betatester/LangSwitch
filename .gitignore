@@ -1,0 +1,15 @@
+# Rust build artifacts
+/target
+Cargo.lock
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Windows temporary files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

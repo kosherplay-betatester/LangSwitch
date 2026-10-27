@@ -25,13 +25,13 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW,
-    HICON, ICONINFO, IDYES, MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MB_YESNO, MF_DISABLED,
-    MF_GRAYED, MF_SEPARATOR, MF_STRING, MessageBoxW, PostMessageW, PostQuitMessage,
-    RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TPM_BOTTOMALIGN,
-    TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_COMMAND, WM_DESTROY, WM_HOTKEY,
-    WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSEXW, WS_OVERLAPPED,
-    SW_SHOW,
+    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW,
+    HICON, ICONINFO, IDYES, IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR, MB_ICONINFORMATION, MB_OK,
+    MB_YESNO, MF_DISABLED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MessageBoxW, PostMessageW,
+    PostQuitMessage, RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, SM_CXSMICON,
+    SM_CYSMICON, SW_SHOW, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
+    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP,
+    WM_USER, WNDCLASSEXW, WS_OVERLAPPED, LoadIconW, LoadImageW,
 };
 
 pub const WM_TRAYICON: u32 = WM_USER + 100;
@@ -74,11 +74,11 @@ unsafe fn create_tray_icon(paused: bool) -> HICON {
 
     let old_bmp = unsafe { SelectObject(hdc_mem, hbm_color as *mut _) };
 
-    // Background color: Blue for active, Gray for paused
+    // Background color: Vibrant Indigo for active, Slate for paused
     let bg_color = if paused {
-        rgb(120, 120, 120)
+        rgb(100, 116, 139)
     } else {
-        rgb(25, 118, 210) // Material Indigo Blue
+        rgb(99, 102, 241) // Vibrant Indigo #6366F1
     };
 
     let brush = unsafe { CreateSolidBrush(bg_color) };
@@ -95,10 +95,10 @@ unsafe fn create_tray_icon(paused: bool) -> HICON {
         SetTextColor(hdc_mem, rgb(255, 255, 255));
     }
 
-    let font_name = to_wide("Arial");
+    let font_name = to_wide("Segoe UI");
     let hfont = unsafe {
         CreateFontW(
-            -10,
+            -11,
             0,
             0,
             0,
@@ -116,7 +116,7 @@ unsafe fn create_tray_icon(paused: bool) -> HICON {
     };
 
     let old_font = unsafe { SelectObject(hdc_mem, hfont as *mut _) };
-    let text = to_wide("LS");
+    let text = to_wide("Aא");
     unsafe {
         DrawTextW(
             hdc_mem,
@@ -185,13 +185,45 @@ pub fn run_tray_app(initial_config: AppConfig) {
             ptr::null(),
         );
 
-        let app_icon = windows_sys::Win32::UI::WindowsAndMessaging::LoadIconW(hinstance, 1 as *const u16);
-        let icon_active = if !app_icon.is_null() {
-            app_icon
-        } else {
-            create_tray_icon(false)
+        let sm_cx = GetSystemMetrics(SM_CXSMICON);
+        let sm_cy = GetSystemMetrics(SM_CYSMICON);
+
+        let icon_active = {
+            let h = LoadImageW(
+                hinstance,
+                1 as *const u16,
+                IMAGE_ICON,
+                sm_cx,
+                sm_cy,
+                LR_DEFAULTCOLOR,
+            );
+            if !h.is_null() {
+                h as HICON
+            } else {
+                let fallback = LoadIconW(hinstance, 1 as *const u16);
+                if !fallback.is_null() {
+                    fallback
+                } else {
+                    create_tray_icon(false)
+                }
+            }
         };
-        let icon_paused = create_tray_icon(true);
+
+        let icon_paused = {
+            let h = LoadImageW(
+                hinstance,
+                2 as *const u16,
+                IMAGE_ICON,
+                sm_cx,
+                sm_cy,
+                LR_DEFAULTCOLOR,
+            );
+            if !h.is_null() {
+                h as HICON
+            } else {
+                create_tray_icon(true)
+            }
+        };
 
         let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
         nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;

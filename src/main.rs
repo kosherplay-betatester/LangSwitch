@@ -108,6 +108,14 @@ fn main() {
             return;
         }
 
+        if args.iter().any(|a| a == "--settings") {
+            let config = AppConfig::load();
+            if let Some(handle) = settings_gui::show_settings_window(config, Box::new(|_| {})) {
+                let _ = handle.join();
+            }
+            return;
+        }
+
         // 2. Check for first run installation prompt
         installer::check_and_prompt_first_run();
 

@@ -6,24 +6,31 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontW, CreateSolidBrush, DeleteObject, InvalidateRect, SetBkMode, SetTextColor,
-    UpdateWindow, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DEFAULT_QUALITY,
-    FW_NORMAL, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS, TRANSPARENT,
+    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, InvalidateRect,
+    RoundRect, SelectObject, SetBkMode, SetTextColor, UpdateWindow, CLIP_DEFAULT_PRECIS,
+    DEFAULT_CHARSET, DEFAULT_PITCH, DEFAULT_QUALITY, DT_CENTER, DT_SINGLELINE, DT_VCENTER,
+    FW_BOLD, FW_NORMAL, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS, PS_SOLID, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Controls::{WC_BUTTONW, WC_COMBOBOXW, WC_STATICW};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
+use windows_sys::Win32::UI::Controls::{
+    DRAWITEMSTRUCT, ODS_SELECTED, WC_BUTTONW, WC_COMBOBOXW, WC_STATICW,
+};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    ReleaseCapture, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
+};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetDlgItem, GetMessageW,
-    GetSystemMetrics, GetWindowLongPtrW, IsWindow, MessageBoxW, PostQuitMessage,
-    RegisterClassExW, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowTextW,
-    ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON,
-    BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, HMENU,
-    IDYES, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO, SM_CXSCREEN,
-    SM_CYSCREEN, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_CTLCOLORDLG, WM_CTLCOLORSTATIC,
-    WM_DESTROY, WM_SETFONT, WNDCLASSEXW, WS_CHILD, WS_EX_DLGMODALFRAME, WS_OVERLAPPED, WS_POPUP,
-    WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetDlgCtrlID, GetDlgItem,
+    GetMessageW, GetSystemMetrics, GetWindowLongPtrW, IsWindow, LoadImageW, MessageBoxW,
+    PostQuitMessage, RegisterClassExW, SendMessageW, SetForegroundWindow, SetWindowLongPtrW,
+    SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
+    BS_GROUPBOX, BS_OWNERDRAW, CBS_DROPDOWNLIST, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA,
+    HMENU, HTCAPTION, ICON_BIG, ICON_SMALL, IDYES, IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR,
+    MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO, SM_CXICON, SM_CXSCREEN, SM_CXSMICON,
+    SM_CYICON, SM_CYSCREEN, SM_CYSMICON, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_COMMAND,
+    WM_CTLCOLORBTN, WM_CTLCOLORDLG, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DRAWITEM, WM_LBUTTONDOWN,
+    WM_NCLBUTTONDOWN, WM_SETFONT, WM_SETICON, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED,
+    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 static SETTINGS_HWND: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(ptr::null_mut());
@@ -32,6 +39,8 @@ const BST_CHECKED: isize = 1;
 const BST_UNCHECKED: isize = 0;
 
 // Control IDs
+const ID_LBL_HEADER_TITLE: usize = 88;
+const ID_LBL_HEADER_SUB: usize = 89;
 const ID_LBL_GRP_HOTKEYS: usize = 90;
 const ID_LBL_PRI_TITLE: usize = 91;
 const ID_LBL_SEC_TITLE: usize = 92;
@@ -86,24 +95,29 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+fn rgb(r: u8, g: u8, b: u8) -> u32 {
+    (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+}
+
 pub fn show_settings_window(
     current_config: AppConfig,
     on_save: Box<dyn Fn(AppConfig) + Send + 'static>,
-) {
+) -> Option<std::thread::JoinHandle<()>> {
     let existing = SETTINGS_HWND.load(Ordering::SeqCst) as HWND;
     if !existing.is_null() && unsafe { IsWindow(existing) } != 0 {
         unsafe {
             ShowWindow(existing, SW_RESTORE);
             SetForegroundWindow(existing);
         }
-        return;
+        return None;
     }
 
-    std::thread::spawn(move || unsafe {
+    Some(std::thread::spawn(move || unsafe {
         let hinstance = GetModuleHandleW(ptr::null());
         let class_name = to_wide("LangSwitchSettingsWindow");
 
-        let bg_brush = CreateSolidBrush(0x00FCFAF8); // Modern soft slate/off-white (#F8FAFC)
+        // Creative light blue & purplish periwinkle background (#F4F5FD)
+        let bg_brush = CreateSolidBrush(rgb(244, 245, 253));
 
         let wnd_class = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -123,7 +137,7 @@ pub fn show_settings_window(
         RegisterClassExW(&wnd_class);
 
         let win_width = 620;
-        let win_height = 680;
+        let win_height = 705;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
@@ -135,11 +149,12 @@ pub fn show_settings_window(
             to_wide("LangSwitch - הגדרות")
         };
 
+        // Window with native caption, system menu, and draggable titlebar
         let hwnd = CreateWindowExW(
-            WS_EX_DLGMODALFRAME,
+            0,
             class_name.as_ptr(),
             title.as_ptr(),
-            WS_POPUP | WS_VISIBLE | WS_OVERLAPPED | 0x00080000 | 0x00040000,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
             pos_x,
             pos_y,
             win_width,
@@ -152,31 +167,81 @@ pub fn show_settings_window(
 
         SETTINGS_HWND.store(hwnd as *mut _, Ordering::SeqCst);
 
-        // Segoe UI font
+        // Set application icons on the window (Title bar and Alt+Tab)
+        let sm_cx = GetSystemMetrics(SM_CXSMICON);
+        let sm_cy = GetSystemMetrics(SM_CYSMICON);
+        let big_cx = GetSystemMetrics(SM_CXICON);
+        let big_cy = GetSystemMetrics(SM_CYICON);
+
+        let icon_sm = LoadImageW(
+            hinstance,
+            1 as *const u16,
+            IMAGE_ICON,
+            sm_cx,
+            sm_cy,
+            LR_DEFAULTCOLOR,
+        );
+        let icon_big = LoadImageW(
+            hinstance,
+            1 as *const u16,
+            IMAGE_ICON,
+            big_cx,
+            big_cy,
+            LR_DEFAULTCOLOR,
+        );
+
+        if !icon_sm.is_null() {
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL as WPARAM, icon_sm as LPARAM);
+        }
+        if !icon_big.is_null() {
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon_big as LPARAM);
+        }
+
+        // Modern fonts
         let font_name = to_wide("Segoe UI");
-        let hfont = CreateFontW(
-            -13,
-            0,
-            0,
-            0,
-            FW_NORMAL as i32,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET as u32,
-            OUT_DEFAULT_PRECIS as u32,
-            CLIP_DEFAULT_PRECIS as u32,
-            DEFAULT_QUALITY as u32,
-            DEFAULT_PITCH as u32,
-            font_name.as_ptr(),
+        let hfont_title = CreateFontW(
+            -18, 0, 0, 0, FW_BOLD as i32, 0, 0, 0,
+            DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
+            DEFAULT_PITCH as u32, font_name.as_ptr(),
+        );
+        let hfont_sub = CreateFontW(
+            -12, 0, 0, 0, FW_NORMAL as i32, 0, 0, 0,
+            DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
+            DEFAULT_PITCH as u32, font_name.as_ptr(),
+        );
+        let hfont_bold = CreateFontW(
+            -13, 0, 0, 0, FW_BOLD as i32, 0, 0, 0,
+            DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
+            DEFAULT_PITCH as u32, font_name.as_ptr(),
+        );
+        let hfont_body = CreateFontW(
+            -13, 0, 0, 0, FW_NORMAL as i32, 0, 0, 0,
+            DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
+            DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
 
         let is_en = current_config.ui_language == "en";
-        init_controls(hwnd, hinstance, hfont, &current_config, is_en);
+        init_controls(
+            hwnd,
+            hinstance,
+            hfont_body,
+            hfont_bold,
+            hfont_title,
+            hfont_sub,
+            &current_config,
+            is_en,
+        );
 
         let state = Box::new(SettingsState {
             on_save,
-            hfont,
+            hfont_body,
+            hfont_bold,
+            hfont_title,
+            hfont_sub,
             bg_brush,
             pri_vk: current_config.hotkey_primary.vk,
             sec_vk: current_config.hotkey_secondary.vk,
@@ -197,12 +262,15 @@ pub fn show_settings_window(
         }
 
         SETTINGS_HWND.store(ptr::null_mut(), Ordering::SeqCst);
-    });
+    }))
 }
 
 struct SettingsState {
     on_save: Box<dyn Fn(AppConfig) + Send + 'static>,
-    hfont: HFONT,
+    hfont_body: HFONT,
+    hfont_bold: HFONT,
+    hfont_title: HFONT,
+    hfont_sub: HFONT,
     bg_brush: HBRUSH,
     pri_vk: u32,
     sec_vk: u32,
@@ -215,7 +283,10 @@ struct SettingsState {
 unsafe fn init_controls(
     hwnd: HWND,
     hinstance: windows_sys::Win32::Foundation::HMODULE,
-    hfont: HFONT,
+    hfont_body: HFONT,
+    hfont_bold: HFONT,
+    hfont_title: HFONT,
+    hfont_sub: HFONT,
     config: &AppConfig,
     is_en: bool,
 ) {
@@ -236,31 +307,64 @@ unsafe fn init_controls(
                 hinstance,
                 ptr::null(),
             );
-            if !hfont.is_null() {
-                SendMessageW(ctrl, WM_SETFONT, hfont as WPARAM, 1);
+            if !hfont_body.is_null() {
+                SendMessageW(ctrl, WM_SETFONT, hfont_body as WPARAM, 1);
             }
             ctrl
         }
     };
 
+    // --- Top Header Title & Subtitle ---
+    let lbl_header = create_ctrl(
+        WC_STATICW,
+        if is_en { "⚡ LangSwitch - Settings" } else { "⚡ הגדרות LangSwitch" },
+        0,
+        20,
+        14,
+        290,
+        24,
+        ID_LBL_HEADER_TITLE,
+    );
+    unsafe {
+        SendMessageW(lbl_header, WM_SETFONT, hfont_title as WPARAM, 1);
+    }
+
+    let lbl_sub = create_ctrl(
+        WC_STATICW,
+        if is_en { "Hebrew ↔ English Instant Layout Switcher" } else { "המרת שפה מהירה בין עברית לאנגלית" },
+        0,
+        22,
+        38,
+        290,
+        18,
+        ID_LBL_HEADER_SUB,
+    );
+    unsafe {
+        SendMessageW(lbl_sub, WM_SETFONT, hfont_sub as WPARAM, 1);
+    }
+
     // --- Language Selector at Top Right ---
-    create_ctrl(
+    let lbl_lang = create_ctrl(
         WC_STATICW,
         if is_en { "Language / שפה:" } else { "שפה / Language:" },
         0,
-        340,
-        14,
-        130,
+        320,
+        22,
+        120,
         22,
         ID_LBL_LANG,
     );
+    unsafe {
+        SendMessageW(lbl_lang, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
+
     let cmb_lang = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        470,
-        12,
-        115,
+        445,
+        18,
+        145,
         120,
         ID_CMB_LANG,
     );
@@ -271,19 +375,24 @@ unsafe fn init_controls(
         SendMessageW(cmb_lang, CB_ADDSTRING, 0, lang_en.as_ptr() as LPARAM);
         SendMessageW(cmb_lang, CB_SETCURSEL, if is_en { 1 } else { 0 }, 0);
     }
-    create_ctrl(
+
+    // --- Group 1: Hotkeys ---
+    let grp_hotkeys = create_ctrl(
         WC_BUTTONW,
         if is_en { " Hotkeys " } else { "\u{200F} מקשי קיצור (Hotkeys) " },
         BS_GROUPBOX as u32,
         15,
-        36,
+        66,
         575,
-        280,
+        292,
         ID_LBL_GRP_HOTKEYS,
     );
+    unsafe {
+        SendMessageW(grp_hotkeys, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
     // 1. Primary hotkey
-    create_ctrl(
+    let lbl_pri = create_ctrl(
         WC_STATICW,
         if is_en {
             "Primary Hotkey (Convert text + Switch input layout):"
@@ -292,30 +401,33 @@ unsafe fn init_controls(
         },
         0,
         30,
-        58,
-        350,
-        20,
+        88,
+        450,
+        18,
         ID_LBL_PRI_TITLE,
     );
+    unsafe {
+        SendMessageW(lbl_pri, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
-    let chk_pri_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 80, 55, 20, ID_CHK_PRI_CTRL);
-    let chk_pri_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 80, 50, 20, ID_CHK_PRI_ALT);
-    let chk_pri_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 80, 58, 20, ID_CHK_PRI_SHIFT);
-    let chk_pri_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 80, 52, 20, ID_CHK_PRI_WIN);
+    let chk_pri_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 108, 52, 20, ID_CHK_PRI_CTRL);
+    let chk_pri_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 108, 48, 20, ID_CHK_PRI_ALT);
+    let chk_pri_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 108, 55, 20, ID_CHK_PRI_SHIFT);
+    let chk_pri_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 108, 50, 20, ID_CHK_PRI_WIN);
 
     let _cmb_pri_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        275,
-        78,
-        290,
+        265,
+        106,
+        310,
         380,
         ID_CMB_PRI_KEY,
     );
 
     // 2. Secondary hotkey
-    create_ctrl(
+    let lbl_sec = create_ctrl(
         WC_STATICW,
         if is_en {
             "Secondary Hotkey (Convert text only, no layout switch):"
@@ -324,30 +436,33 @@ unsafe fn init_controls(
         },
         0,
         30,
-        114,
-        350,
-        20,
+        142,
+        450,
+        18,
         ID_LBL_SEC_TITLE,
     );
+    unsafe {
+        SendMessageW(lbl_sec, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
-    let chk_sec_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 136, 55, 20, ID_CHK_SEC_CTRL);
-    let chk_sec_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 136, 50, 20, ID_CHK_SEC_ALT);
-    let chk_sec_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 136, 58, 20, ID_CHK_SEC_SHIFT);
-    let chk_sec_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 136, 52, 20, ID_CHK_SEC_WIN);
+    let chk_sec_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 162, 52, 20, ID_CHK_SEC_CTRL);
+    let chk_sec_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 162, 48, 20, ID_CHK_SEC_ALT);
+    let chk_sec_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 162, 55, 20, ID_CHK_SEC_SHIFT);
+    let chk_sec_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 162, 50, 20, ID_CHK_SEC_WIN);
 
     let _cmb_sec_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        275,
-        134,
-        290,
+        265,
+        160,
+        310,
         380,
         ID_CMB_SEC_KEY,
     );
 
     // 3. Google AI Search hotkey
-    create_ctrl(
+    let lbl_ai = create_ctrl(
         WC_STATICW,
         if is_en {
             "Google AI Search Hotkey (AI Mode):"
@@ -356,30 +471,33 @@ unsafe fn init_controls(
         },
         0,
         30,
-        170,
-        350,
-        20,
+        196,
+        450,
+        18,
         ID_LBL_AI_TITLE,
     );
+    unsafe {
+        SendMessageW(lbl_ai, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
-    let chk_ai_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 192, 55, 20, ID_CHK_AI_CTRL);
-    let chk_ai_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 192, 50, 20, ID_CHK_AI_ALT);
-    let chk_ai_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 192, 58, 20, ID_CHK_AI_SHIFT);
-    let chk_ai_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 192, 52, 20, ID_CHK_AI_WIN);
+    let chk_ai_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 216, 52, 20, ID_CHK_AI_CTRL);
+    let chk_ai_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 216, 48, 20, ID_CHK_AI_ALT);
+    let chk_ai_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 216, 55, 20, ID_CHK_AI_SHIFT);
+    let chk_ai_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 216, 50, 20, ID_CHK_AI_WIN);
 
     let _cmb_ai_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        275,
-        190,
-        290,
+        265,
+        214,
+        310,
         380,
         ID_CMB_AI_KEY,
     );
 
     // 4. Google Quick Translation hotkey
-    create_ctrl(
+    let lbl_trans = create_ctrl(
         WC_STATICW,
         if is_en {
             "Quick Translation Hotkey (Hebrew ↔ English via Google):"
@@ -388,24 +506,27 @@ unsafe fn init_controls(
         },
         0,
         30,
-        226,
-        350,
-        20,
+        250,
+        450,
+        18,
         ID_LBL_TRANS_TITLE,
     );
+    unsafe {
+        SendMessageW(lbl_trans, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
-    let chk_trans_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 248, 55, 20, ID_CHK_TRANS_CTRL);
-    let chk_trans_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 90, 248, 50, 20, ID_CHK_TRANS_ALT);
-    let chk_trans_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 145, 248, 58, 20, ID_CHK_TRANS_SHIFT);
-    let chk_trans_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 208, 248, 52, 20, ID_CHK_TRANS_WIN);
+    let chk_trans_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 270, 52, 20, ID_CHK_TRANS_CTRL);
+    let chk_trans_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 270, 48, 20, ID_CHK_TRANS_ALT);
+    let chk_trans_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 270, 55, 20, ID_CHK_TRANS_SHIFT);
+    let chk_trans_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 270, 50, 20, ID_CHK_TRANS_WIN);
 
     let _cmb_trans_key = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        275,
-        246,
-        290,
+        265,
+        268,
+        310,
         380,
         ID_CMB_TRANS_KEY,
     );
@@ -497,16 +618,19 @@ unsafe fn init_controls(
     }
 
     // --- Group 2: Behavior Options ---
-    create_ctrl(
+    let grp_options = create_ctrl(
         WC_BUTTONW,
         if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " },
         BS_GROUPBOX as u32,
         15,
-        325,
+        368,
         575,
-        145,
+        146,
         ID_LBL_GRP_OPTIONS,
     );
+    unsafe {
+        SendMessageW(grp_options, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
     let chk_switch = create_ctrl(
         WC_BUTTONW,
@@ -517,7 +641,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        350,
+        392,
         540,
         22,
         ID_CHK_AUTO_SWITCH,
@@ -537,7 +661,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        377,
+        419,
         540,
         22,
         ID_CHK_AUTO_SELECT_LINE,
@@ -557,7 +681,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        404,
+        446,
         540,
         22,
         ID_CHK_START_WINDOWS,
@@ -577,7 +701,7 @@ unsafe fn init_controls(
         },
         BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
         30,
-        431,
+        473,
         540,
         22,
         ID_CHK_RESTORE_CLIPBOARD,
@@ -589,32 +713,38 @@ unsafe fn init_controls(
     }
 
     // --- Group 3: Update and Info ---
-    create_ctrl(
+    let grp_updates = create_ctrl(
         WC_BUTTONW,
         if is_en { " Updates & Info " } else { "\u{200F} עדכונים ומידע " },
         BS_GROUPBOX as u32,
         15,
-        480,
+        524,
         575,
-        70,
+        68,
         ID_LBL_GRP_UPDATES,
     );
+    unsafe {
+        SendMessageW(grp_updates, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
     let ver_label = if is_en {
         format!("Current Version: v{}", CURRENT_VERSION)
     } else {
         format!("\u{200F}גרסה נוכחית: v{}", CURRENT_VERSION)
     };
-    create_ctrl(WC_STATICW, &ver_label, 0, 30, 510, 230, 20, ID_LBL_VERSION);
+    let lbl_ver = create_ctrl(WC_STATICW, &ver_label, 0, 30, 550, 240, 20, ID_LBL_VERSION);
+    unsafe {
+        SendMessageW(lbl_ver, WM_SETFONT, hfont_bold as WPARAM, 1);
+    }
 
     create_ctrl(
         WC_BUTTONW,
-        if is_en { "Check for Updates" } else { "בדוק עדכונים מ-GitHub" },
-        BS_PUSHBUTTON as u32 | WS_TABSTOP,
-        390,
-        503,
-        185,
-        30,
+        if is_en { "Check for Updates" } else { "בדיקת עדכונים ב-GitHub" },
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
+        370,
+        542,
+        205,
+        34,
         ID_BTN_CHECK_UPDATE,
     );
 
@@ -622,33 +752,33 @@ unsafe fn init_controls(
     create_ctrl(
         WC_BUTTONW,
         if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" },
-        BS_PUSHBUTTON as u32 | WS_TABSTOP,
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
         15,
-        570,
+        606,
         160,
-        34,
+        36,
         ID_BTN_RESTORE_DEFAULTS,
     );
 
     create_ctrl(
         WC_BUTTONW,
         if is_en { "Save & Apply" } else { "שמור והחל" },
-        BS_DEFPUSHBUTTON as u32 | WS_TABSTOP,
-        330,
-        570,
-        130,
-        34,
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
+        325,
+        606,
+        140,
+        36,
         ID_BTN_SAVE,
     );
 
     create_ctrl(
         WC_BUTTONW,
         if is_en { "Cancel" } else { "ביטול" },
-        BS_PUSHBUTTON as u32 | WS_TABSTOP,
-        470,
-        570,
-        120,
-        34,
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
+        475,
+        606,
+        115,
+        36,
         ID_BTN_CANCEL,
     );
 }
@@ -830,6 +960,97 @@ unsafe extern "system" fn settings_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        // Dragging handler: allows clicking on header or background to drag the window smoothly!
+        WM_LBUTTONDOWN => unsafe {
+            ReleaseCapture();
+            SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION as WPARAM, 0);
+            return 0;
+        },
+        WM_DRAWITEM => {
+            let dis = unsafe { &*(lparam as *const DRAWITEMSTRUCT) };
+            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+            let is_en = if !state_ptr.is_null() {
+                unsafe { (*state_ptr).is_english }
+            } else {
+                false
+            };
+
+            let ctrl_id = dis.CtlID as usize;
+            let is_pressed = (dis.itemState & ODS_SELECTED) != 0;
+
+            let (bg_color, border_color, text_color, text) = match ctrl_id {
+                ID_BTN_SAVE => {
+                    // Vibrant Indigo / Violet gradient button
+                    let bg = if is_pressed { rgb(79, 70, 229) } else { rgb(99, 102, 241) };
+                    let border = if is_pressed { rgb(67, 56, 202) } else { rgb(79, 70, 229) };
+                    let txt = if is_en { "Save & Apply" } else { "שמור והחל" };
+                    (bg, border, rgb(255, 255, 255), txt)
+                }
+                ID_BTN_RESTORE_DEFAULTS => {
+                    // Soft Lavender button
+                    let bg = if is_pressed { rgb(233, 213, 255) } else { rgb(243, 232, 255) };
+                    let border = if is_pressed { rgb(192, 132, 252) } else { rgb(216, 180, 254) };
+                    let txt = if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" };
+                    (bg, border, rgb(109, 40, 217), txt)
+                }
+                ID_BTN_CHECK_UPDATE => {
+                    // Soft Sky Blue button
+                    let bg = if is_pressed { rgb(186, 230, 253) } else { rgb(224, 242, 254) };
+                    let border = if is_pressed { rgb(125, 211, 252) } else { rgb(186, 230, 253) };
+                    let txt = if is_en { "Check for Updates" } else { "בדיקת עדכונים ב-GitHub" };
+                    (bg, border, rgb(2, 132, 199), txt)
+                }
+                ID_BTN_CANCEL => {
+                    // Clean Soft Slate button
+                    let bg = if is_pressed { rgb(226, 232, 240) } else { rgb(241, 245, 249) };
+                    let border = if is_pressed { rgb(203, 213, 225) } else { rgb(226, 232, 240) };
+                    let txt = if is_en { "Cancel" } else { "ביטול" };
+                    (bg, border, rgb(71, 85, 105), txt)
+                }
+                _ => return 0,
+            };
+
+            unsafe {
+                let brush = CreateSolidBrush(bg_color);
+                let pen = CreatePen(PS_SOLID as i32, 1, border_color);
+                let old_brush = SelectObject(dis.hDC, brush as *mut _);
+                let old_pen = SelectObject(dis.hDC, pen as *mut _);
+
+                RoundRect(
+                    dis.hDC,
+                    dis.rcItem.left,
+                    dis.rcItem.top,
+                    dis.rcItem.right,
+                    dis.rcItem.bottom,
+                    8,
+                    8,
+                );
+
+                SelectObject(dis.hDC, old_brush);
+                SelectObject(dis.hDC, old_pen);
+                DeleteObject(brush as *mut _);
+                DeleteObject(pen as *mut _);
+
+                SetBkMode(dis.hDC, TRANSPARENT as i32);
+                SetTextColor(dis.hDC, text_color);
+
+                if !state_ptr.is_null() {
+                    let state = &*state_ptr;
+                    SelectObject(dis.hDC, state.hfont_bold as *mut _);
+                }
+
+                let mut rc = dis.rcItem;
+                let wtext = to_wide(text);
+                DrawTextW(
+                    dis.hDC,
+                    wtext.as_ptr(),
+                    -1,
+                    &mut rc,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                );
+            }
+            return 1;
+        }
         WM_COMMAND => {
             let ctrl_id = (wparam & 0xFFFF) as usize;
             let notif = ((wparam >> 16) & 0xFFFF) as u32;
@@ -950,9 +1171,36 @@ unsafe extern "system" fn settings_wnd_proc(
         }
         WM_CTLCOLORSTATIC => {
             let hdc = wparam as HDC;
+            let ctrl_id = unsafe { GetDlgCtrlID(lparam as HWND) } as usize;
             unsafe {
                 SetBkMode(hdc, TRANSPARENT as i32);
-                SetTextColor(hdc, 0x003B291E); // Deep slate #1E293B
+                // Creative light blue & purple palette for headings and labels
+                let text_color = match ctrl_id {
+                    ID_LBL_HEADER_TITLE => rgb(109, 40, 217), // Deep Violet
+                    ID_LBL_HEADER_SUB => rgb(67, 56, 202),   // Slate Indigo
+                    ID_LBL_GRP_HOTKEYS | ID_LBL_GRP_OPTIONS => rgb(109, 40, 217), // Royal Violet
+                    ID_LBL_PRI_TITLE => rgb(2, 132, 199),    // Sky Blue
+                    ID_LBL_SEC_TITLE => rgb(79, 70, 229),    // Indigo
+                    ID_LBL_AI_TITLE => rgb(2, 132, 199),     // Sky Blue
+                    ID_LBL_TRANS_TITLE => rgb(124, 58, 237), // Purple/Violet
+                    ID_LBL_GRP_UPDATES => rgb(71, 85, 105),  // Slate Blue
+                    ID_LBL_VERSION => rgb(109, 40, 217),     // Deep Violet
+                    ID_LBL_LANG => rgb(67, 56, 202),        // Slate Indigo
+                    _ => rgb(30, 41, 59),                    // Slate 800
+                };
+                SetTextColor(hdc, text_color);
+            }
+            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+            if !state_ptr.is_null() {
+                let state = unsafe { &*state_ptr };
+                return state.bg_brush as LRESULT;
+            }
+        }
+        WM_CTLCOLORBTN => {
+            let hdc = wparam as HDC;
+            unsafe {
+                SetBkMode(hdc, TRANSPARENT as i32);
+                SetTextColor(hdc, rgb(30, 41, 59));
             }
             let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
             if !state_ptr.is_null() {
@@ -968,8 +1216,17 @@ unsafe extern "system" fn settings_wnd_proc(
             let state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState;
             if !state_ptr.is_null() {
                 let state = Box::from_raw(state_ptr);
-                if !state.hfont.is_null() {
-                    DeleteObject(state.hfont as *mut _);
+                if !state.hfont_body.is_null() {
+                    DeleteObject(state.hfont_body as *mut _);
+                }
+                if !state.hfont_bold.is_null() {
+                    DeleteObject(state.hfont_bold as *mut _);
+                }
+                if !state.hfont_title.is_null() {
+                    DeleteObject(state.hfont_title as *mut _);
+                }
+                if !state.hfont_sub.is_null() {
+                    DeleteObject(state.hfont_sub as *mut _);
                 }
                 if !state.bg_brush.is_null() {
                     DeleteObject(state.bg_brush as *mut _);
@@ -996,6 +1253,8 @@ unsafe fn update_ui_language(hwnd: HWND, is_en: bool) {
         SetWindowTextW(hwnd, w_title.as_ptr());
     }
 
+    set_text(ID_LBL_HEADER_TITLE, if is_en { "⚡ LangSwitch - Settings" } else { "⚡ הגדרות LangSwitch" });
+    set_text(ID_LBL_HEADER_SUB, if is_en { "Hebrew ↔ English Instant Layout Switcher" } else { "המרת שפה מהירה בין עברית לאנגלית" });
     set_text(ID_LBL_LANG, if is_en { "Language / שפה:" } else { "\u{200F}שפה / Language:" });
     set_text(ID_LBL_GRP_HOTKEYS, if is_en { " Hotkeys " } else { "\u{200F} מקשי קיצור (Hotkeys) " });
     set_text(ID_LBL_PRI_TITLE, if is_en { "Primary Hotkey (Convert text + Switch input layout):" } else { "\u{200F}מקש ראשי (המרה + החלפת שפת מקלדת):" });
@@ -1009,10 +1268,18 @@ unsafe fn update_ui_language(hwnd: HWND, is_en: bool) {
     set_text(ID_CHK_RESTORE_CLIPBOARD, if is_en { "Restore original clipboard contents after conversion" } else { "\u{200F}שחזר לוח גזירים (Clipboard) מקורי לאחר ההמרה" });
     set_text(ID_LBL_GRP_UPDATES, if is_en { " Updates & Info " } else { "\u{200F} עדכונים ומידע " });
     set_text(ID_LBL_VERSION, &if is_en { format!("Current Version: v{}", CURRENT_VERSION) } else { format!("\u{200F}גרסה נוכחית: v{}", CURRENT_VERSION) });
-    set_text(ID_BTN_CHECK_UPDATE, if is_en { "Check for Updates" } else { "בדוק עדכונים מ-GitHub" });
-    set_text(ID_BTN_RESTORE_DEFAULTS, if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" });
-    set_text(ID_BTN_SAVE, if is_en { "Save & Apply" } else { "שמור והחל" });
-    set_text(ID_BTN_CANCEL, if is_en { "Cancel" } else { "ביטול" });
+
+    // Request redraw for owner-drawn buttons
+    unsafe {
+        let btn_check = GetDlgItem(hwnd, ID_BTN_CHECK_UPDATE as i32);
+        let btn_defaults = GetDlgItem(hwnd, ID_BTN_RESTORE_DEFAULTS as i32);
+        let btn_save = GetDlgItem(hwnd, ID_BTN_SAVE as i32);
+        let btn_cancel = GetDlgItem(hwnd, ID_BTN_CANCEL as i32);
+        InvalidateRect(btn_check, ptr::null(), 1);
+        InvalidateRect(btn_defaults, ptr::null(), 1);
+        InvalidateRect(btn_save, ptr::null(), 1);
+        InvalidateRect(btn_cancel, ptr::null(), 1);
+    }
 }
 
 unsafe fn handle_restore_defaults(hwnd: HWND) {

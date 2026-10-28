@@ -213,7 +213,7 @@ pub fn select_current_line(display: DisplayServer) {
         DisplayServer::X11 => {
             if command_exists("xdotool") {
                 let _ = Command::new("xdotool")
-                    .args(["key", "Home", "shift+End", "ctrl+c"])
+                    .args(["key", "--clearmodifiers", "Home", "shift+End", "ctrl+c"])
                     .status();
             }
         }
@@ -223,7 +223,7 @@ pub fn select_current_line(display: DisplayServer) {
 
 /// Simulates pasting from clipboard (Ctrl+V).
 pub fn send_paste(display: DisplayServer) {
-    thread::sleep(Duration::from_millis(25));
+    thread::sleep(Duration::from_millis(30));
     match display {
         DisplayServer::Wayland => {
             if command_exists("wtype") {
@@ -238,7 +238,7 @@ pub fn send_paste(display: DisplayServer) {
         }
         DisplayServer::X11 => {
             if command_exists("xdotool") {
-                let _ = Command::new("xdotool").args(["key", "ctrl+v"]).status();
+                let _ = Command::new("xdotool").args(["key", "--clearmodifiers", "ctrl+v"]).status();
             }
         }
         DisplayServer::Unknown => {}
@@ -300,8 +300,12 @@ pub fn perform_conversion(switch_layout_always: bool) {
     // 2. If no text was highlighted, and auto_select_line is enabled, select line & copy
     if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) && config.auto_select_line {
         select_current_line(display);
-        thread::sleep(Duration::from_millis(35));
+        thread::sleep(Duration::from_millis(65));
         selected_text = get_clipboard_text(display);
+        if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+            thread::sleep(Duration::from_millis(40));
+            selected_text = get_clipboard_text(display);
+        }
     }
 
     let raw_text = match selected_text {
@@ -400,8 +404,32 @@ pub fn print_status() {
 }
 
 const ICON_SVG: &str = include_str!("../assets/icon.svg");
+const WELCOME_SCRIPT: &str = include_str!("../assets/welcome_linux.py");
 
-/// Installs standard desktop shortcut, embedded icon, and desktop environment shortcuts.
+/// Launches the interactive Welcome Screen GUI on Linux.
+pub fn show_welcome_screen() {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let welcome_path = PathBuf::from(&home).join(".local/bin/langswitch-welcome");
+    let _ = fs::write(&welcome_path, WELCOME_SCRIPT);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mut perms) = fs::metadata(&welcome_path).map(|m| m.permissions()) {
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(&welcome_path, perms);
+        }
+    }
+
+    let _ = Command::new("python3")
+        .arg(&welcome_path)
+        .spawn();
+}
+
+/// Installs standard desktop shortcut, embedded icon, welcome GUI and desktop environment shortcuts.
 pub fn install_app_linux() -> Result<(), String> {
     let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set")?;
 
@@ -415,7 +443,21 @@ pub fn install_app_linux() -> Result<(), String> {
         println!("✅ Embedded SVG icon installed to: {}", icon_path.display());
     }
 
-    // 2. Install Desktop file to ~/.local/share/applications/langswitch.desktop
+    // 2. Install Welcome GUI script to ~/.local/bin/langswitch-welcome
+    let bin_dir = PathBuf::from(&home).join(".local/bin");
+    let _ = fs::create_dir_all(&bin_dir);
+    let welcome_path = bin_dir.join("langswitch-welcome");
+    let _ = fs::write(&welcome_path, WELCOME_SCRIPT);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mut perms) = fs::metadata(&welcome_path).map(|m| m.permissions()) {
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(&welcome_path, perms);
+        }
+    }
+
+    // 3. Install Desktop file to ~/.local/share/applications/langswitch.desktop
     let target_dir = PathBuf::from(&home).join(".local/share/applications");
     let _ = fs::create_dir_all(&target_dir);
     let desktop_file = target_dir.join("langswitch.desktop");
@@ -429,26 +471,29 @@ pub fn install_app_linux() -> Result<(), String> {
          Name=LangSwitch\n\
          GenericName=Text Layout Switcher\n\
          Comment=Instant Hebrew/English text conversion\n\
-         Exec=\"{}\" --convert\n\
+         Exec=\"{}\" --welcome\n\
          Icon=langswitch\n\
          Terminal=false\n\
          Categories=Utility;TextTools;\n\
          Keywords=hebrew;english;layout;switch;langover;\n\
          X-KDE-Shortcuts=F10\n\
-         Actions=SwitchLayout;\n\n\
+         Actions=Convert;SwitchLayout;\n\n\
+         [Desktop Action Convert]\n\
+         Name=Convert Text (F10)\n\
+         Exec=\"{}\" --convert\n\n\
          [Desktop Action SwitchLayout]\n\
-         Name=Convert & Switch Keyboard Layout\n\
+         Name=Convert & Switch Keyboard Layout (Ctrl+F10)\n\
          Exec=\"{}\" --convert-and-switch\n",
-        exe_str, exe_str
+        exe_str, exe_str, exe_str
     );
 
     fs::write(&desktop_file, content).map_err(|e| e.to_string())?;
     println!("✅ Desktop entry successfully installed to: {}", desktop_file.display());
 
-    // 3. Automatically configure desktop environment keyboard shortcuts
+    // 4. Automatically configure desktop environment keyboard shortcuts
     auto_configure_desktop_shortcuts(&exe_str);
 
-    // 4. Update desktop and icon caches if tools exist
+    // 5. Update desktop and icon caches if tools exist
     let _ = Command::new("update-desktop-database")
         .arg(target_dir)
         .stdout(Stdio::null())
@@ -613,7 +658,49 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
         return;
     }
 
-    // 3. Other environments (KDE / Hyprland / Sway / i3)
+    // 3. MATE (Linux Mint MATE, Ubuntu MATE)
+    if de.contains("mate") {
+        println!("🔧 מגדיר אוטומטית מקשי קיצור ב-MATE...");
+        let _ = Command::new("gsettings")
+            .args(["set", "org.mate.interface", "menubar-accel", ""])
+            .status();
+
+        let p1 = "/org/mate/settings-daemon/plugins/media-keys/custom-keybindings/custom0/";
+        let p2 = "/org/mate/settings-daemon/plugins/media-keys/custom-keybindings/custom1/";
+        let list_str = format!("['{}', '{}']", p1, p2);
+        let _ = Command::new("gsettings")
+            .args(["set", "org.mate.SettingsDaemon.plugins.media-keys", "custom-keybindings", &list_str])
+            .status();
+
+        let cmd1 = format!("\"{}\" --convert", exe_path);
+        let cmd2 = format!("\"{}\" --convert-and-switch", exe_path);
+        let _ = Command::new("gsettings").args(["set", &format!("org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:{}", p1), "name", "LangSwitch Convert"]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:{}", p1), "command", &cmd1]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:{}", p1), "binding", "F10"]).status();
+
+        let _ = Command::new("gsettings").args(["set", &format!("org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:{}", p2), "name", "LangSwitch Convert & Switch"]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:{}", p2), "command", &cmd2]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:{}", p2), "binding", "<Control>F10"]).status();
+        println!("✅ קיצורי הדרך F10 ו-Ctrl+F10 הוגדרו בהצלחה ב-MATE!");
+        return;
+    }
+
+    // 4. XFCE (Linux Mint XFCE, Xubuntu, Manjaro XFCE)
+    if de.contains("xfce") {
+        println!("🔧 מגדיר אוטומטית מקשי קיצור ב-XFCE...");
+        let cmd1 = format!("\"{}\" --convert", exe_path);
+        let cmd2 = format!("\"{}\" --convert-and-switch", exe_path);
+        let _ = Command::new("xfconf-query")
+            .args(["-c", "xfce4-keyboard-shortcuts", "-p", "/commands/custom/<F10>", "-n", "-t", "string", "-s", &cmd1])
+            .status();
+        let _ = Command::new("xfconf-query")
+            .args(["-c", "xfce4-keyboard-shortcuts", "-p", "/commands/custom/<Primary><F10>", "-n", "-t", "string", "-s", &cmd2])
+            .status();
+        println!("✅ קיצורי הדרך F10 ו-Ctrl+F10 הוגדרו בהצלחה ב-XFCE!");
+        return;
+    }
+
+    // 5. Other environments (KDE / Hyprland / Sway / i3)
     if de.contains("kde") || de.contains("plasma") {
         println!("ℹ️  ב-KDE Plasma: קיצור הדרך F10 מוטמע ישירות בקובץ ה-desktop שהותקן.");
     } else {

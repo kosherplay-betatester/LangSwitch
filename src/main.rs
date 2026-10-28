@@ -62,6 +62,11 @@ fn main() {
             return;
         }
 
+        if args.iter().any(|a| a == "--welcome" || a == "-w") {
+            linux::show_welcome_screen();
+            return;
+        }
+
         if args.iter().any(|a| a == "--install" || a == "--install-desktop" || a == "-i") {
             if let Err(e) = linux::install_app_linux() {
                 eprintln!("Error installing LangSwitch: {}", e);

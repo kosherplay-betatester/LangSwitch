@@ -13,3 +13,8 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Python cache & Scratch
+__pycache__/
+*.pyc
+scratch/

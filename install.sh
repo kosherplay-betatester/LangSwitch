@@ -91,12 +91,20 @@ fi
 chmod +x "$TARGET_BIN"
 echo -e "${GREEN}✅ הקובץ הבינארי הותקן בהצלחה!${NC}"
 
-# 6. Install Icon
+# 6. Install Icon & Welcome Screen Script
 if [ -f "./assets/icon.svg" ]; then
     cp "./assets/icon.svg" "$ICON_DIR/langswitch.svg"
 else
     curl -sSL "https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/assets/icon.svg" -o "$ICON_DIR/langswitch.svg" 2>/dev/null || true
 fi
+
+WELCOME_BIN="$INSTALL_DIR/langswitch-welcome"
+if [ -f "./assets/welcome_linux.py" ]; then
+    cp "./assets/welcome_linux.py" "$WELCOME_BIN"
+else
+    curl -sSL "https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/assets/welcome_linux.py" -o "$WELCOME_BIN" 2>/dev/null || true
+fi
+chmod +x "$WELCOME_BIN" 2>/dev/null || true
 
 # 7. Run in-app automated desktop & shortcut setup
 echo ""
@@ -107,6 +115,7 @@ if command -v gsettings >/dev/null 2>&1; then
     # Disable GTK F10 menubar accelerator so F10 works globally without conflict
     gsettings set org.cinnamon.desktop.interface menubar-accel "" 2>/dev/null || true
     gsettings set org.gnome.desktop.interface menubar-accel "" 2>/dev/null || true
+    gsettings set org.mate.interface menubar-accel "" 2>/dev/null || true
 
     # Direct setup for Cinnamon if detected
     if [[ "$DE" =~ [Cc]innamon ]]; then
@@ -144,6 +153,32 @@ if command -v gsettings >/dev/null 2>&1; then
         gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P2" command "$TARGET_BIN --convert-and-switch" 2>/dev/null || true
         gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P2" binding "<Control>F10" 2>/dev/null || true
     fi
+
+    # MATE setup
+    if [[ "$DE" =~ [Mm][Aa][Tt][Ee] ]]; then
+        MP1="/org/mate/settings-daemon/plugins/media-keys/custom-keybindings/custom0/"
+        MP2="/org/mate/settings-daemon/plugins/media-keys/custom-keybindings/custom1/"
+        gsettings set org.mate.SettingsDaemon.plugins.media-keys custom-keybindings "['$MP1', '$MP2']" 2>/dev/null || true
+        gsettings set "org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:$MP1" name "LangSwitch Convert" 2>/dev/null || true
+        gsettings set "org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:$MP1" command "$TARGET_BIN --convert" 2>/dev/null || true
+        gsettings set "org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:$MP1" binding "F10" 2>/dev/null || true
+        gsettings set "org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:$MP2" name "LangSwitch Convert & Switch" 2>/dev/null || true
+        gsettings set "org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:$MP2" command "$TARGET_BIN --convert-and-switch" 2>/dev/null || true
+        gsettings set "org.mate.SettingsDaemon.plugins.media-keys.custom-keybinding:$MP2" binding "<Control>F10" 2>/dev/null || true
+    fi
+fi
+
+# XFCE setup
+if command -v xfconf-query >/dev/null 2>&1; then
+    xfconf-query -c xfce4-keyboard-shortcuts -p "/commands/custom/<F10>" -n -t string -s "$TARGET_BIN --convert" 2>/dev/null || true
+    xfconf-query -c xfce4-keyboard-shortcuts -p "/commands/custom/<Primary><F10>" -n -t string -s "$TARGET_BIN --convert-and-switch" 2>/dev/null || true
+fi
+
+# KDE Plasma setup
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kglobalshortcutsrc --group langswitch.desktop --key _launch "F10,none,LangSwitch Convert" 2>/dev/null || true
+elif command -v kwriteconfig5 >/dev/null 2>&1; then
+    kwriteconfig5 --file kglobalshortcutsrc --group langswitch.desktop --key _launch "F10,none,LangSwitch Convert" 2>/dev/null || true
 fi
 
 # 8. Check & Install Helper Tools (Clipboard & Keystroke Simulation)
@@ -254,3 +289,14 @@ echo -e "בדיקת תקינות המערכת (Diagnostics):"
 echo ""
 echo -e "לפרטים והגדרות נוספות: ${CYAN}langswitch --status${NC}"
 echo "תהנה מ-LangSwitch! ⚡"
+
+# 11. Launch the Welcome Screen GUI immediately!
+if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+    echo ""
+    echo -e "${CYAN}🚀 פותח את מסך הפתיחה (Welcome Screen)...${NC}"
+    if command -v python3 >/dev/null 2>&1 && [ -f "$WELCOME_BIN" ]; then
+        python3 "$WELCOME_BIN" >/dev/null 2>&1 &
+    else
+        "$TARGET_BIN" --welcome >/dev/null 2>&1 &
+    fi
+fi

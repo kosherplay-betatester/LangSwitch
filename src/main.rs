@@ -48,6 +48,11 @@ fn main() {
         use std::io::IsTerminal;
 
         if args.iter().any(|a| a == "--convert" || a == "-c") {
+            linux::perform_conversion(true);
+            return;
+        }
+
+        if args.iter().any(|a| a == "--convert-only") {
             linux::perform_conversion(false);
             return;
         }
@@ -92,7 +97,7 @@ fn main() {
             linux::print_status();
         } else {
             // Invoked from desktop shortcut or hotkey
-            linux::perform_conversion(false);
+            linux::perform_conversion(true);
         }
         return;
     }

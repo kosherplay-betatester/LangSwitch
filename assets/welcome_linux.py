@@ -10,9 +10,22 @@ import os
 import sys
 import subprocess
 import threading
+import ctypes
+from ctypes import c_int, c_uint, c_ulong, c_void_p, c_char_p, POINTER, byref, CFUNCTYPE
 
 EN_KEYS = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
 HE_KEYS = "/'קראטוןםפ][שדגכעיחלךף,זסבהנמצתץ.;"
+
+def log_debug(msg: str):
+    """Logs diagnostic messages to /tmp/langswitch.log and stdout"""
+    try:
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{timestamp}] [Welcome/Daemon] {msg}\n"
+        with open("/tmp/langswitch.log", "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
 
 def convert_text(input_str: str):
     """Fast in-memory conversion matching LangSwitch core engine (returns converted, direction)"""
@@ -35,30 +48,77 @@ def convert_text(input_str: str):
             res.append(c)
     return "".join(res), direction
 
-def switch_system_layout():
-    """Safely toggles keyboard layout using the user's configured shortcut without altering layout lists"""
-    shortcut = "super+space"
-    # 1. Detect configured shortcut from Cinnamon xkb-options
+def switch_system_layout(target_direction=None):
+    """
+    Switches keyboard layout between English and Hebrew.
+    Uses direct X11 XkbLockGroup (instant, zero side-effects, does not alter layout tables).
+    """
+    log_debug(f"switch_system_layout called with target_direction={target_direction}")
     try:
-        out = subprocess.check_output(
-            ["gsettings", "get", "org.cinnamon.desktop.input-sources", "xkb-options"],
-            stderr=subprocess.DEVNULL,
-            timeout=1
-        ).decode().lower()
+        x11_lib_names = ["libX11.so.6", "libX11.so", "/usr/lib/x86_64-linux-gnu/libX11.so.6"]
+        x11 = None
+        for name in x11_lib_names:
+            try:
+                x11 = ctypes.cdll.LoadLibrary(name)
+                break
+            except Exception:
+                continue
+        if x11:
+            class XkbStateRec(ctypes.Structure):
+                _fields_ = [
+                    ("group", ctypes.c_ubyte),
+                    ("base_group", ctypes.c_ubyte),
+                    ("latched_group", ctypes.c_ubyte),
+                    ("locked_group", ctypes.c_ubyte),
+                    ("mods", ctypes.c_ubyte),
+                    ("base_mods", ctypes.c_ubyte),
+                    ("latched_mods", ctypes.c_ubyte),
+                    ("locked_mods", ctypes.c_ubyte),
+                    ("compat_state", ctypes.c_ubyte),
+                    ("grab_mods", ctypes.c_ubyte),
+                    ("compat_grab_mods", ctypes.c_ubyte),
+                    ("lookup_mods", ctypes.c_ubyte),
+                    ("compat_lookup_mods", ctypes.c_ubyte),
+                    ("ptr_buttons", ctypes.c_ushort)
+                ]
+
+            d = x11.XOpenDisplay(None)
+            if d:
+                state = XkbStateRec()
+                x11.XkbGetState(d, 0x0100, ctypes.byref(state))
+                current_group = state.group
+
+                if target_direction == "he":
+                    next_group = 1
+                elif target_direction == "en":
+                    next_group = 0
+                else:
+                    next_group = 1 if current_group == 0 else 0
+
+                x11.XkbLockGroup(d, 0x0100, next_group)
+                x11.XCloseDisplay(d)
+                log_debug(f"Successfully locked Xkb group from {current_group} to {next_group}")
+                return
+    except Exception as e:
+        log_debug(f"XkbLockGroup direct switch failed: {e}")
+
+    # Fallback: simulate toggle shortcut with xdotool
+    shortcut = "super+space"
+    try:
+        out = subprocess.check_output(["setxkbmap", "-query"], stderr=subprocess.DEVNULL, timeout=1).decode().lower()
         if "alt_shift" in out:
             shortcut = "alt+shift"
         elif "ctrl_shift" in out:
             shortcut = "ctrl+shift"
-        elif "super_space" in out or "win_space" in out:
+        elif "win_space" in out or "super_space" in out:
             shortcut = "super+space"
     except Exception:
         pass
-
-    # 2. Simulate the user's layout switch shortcut
     try:
         subprocess.run(["xdotool", "key", "--clearmodifiers", shortcut], stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+        log_debug(f"Simulated {shortcut} with xdotool")
+    except Exception as e:
+        log_debug(f"xdotool simulation failed: {e}")
 
 def open_system_keyboard_settings():
     """Opens the desktop environment's keyboard shortcuts settings window"""
@@ -70,14 +130,144 @@ def open_system_keyboard_settings():
         except Exception:
             continue
 
-def trigger_langswitch_convert(switch_layout=False):
+def trigger_langswitch_convert(switch_layout=True):
     """Runs the compiled binary to perform global conversion"""
     bin_path = os.path.expanduser("~/.local/bin/langswitch")
-    arg = "--convert-and-switch" if switch_layout else "--convert"
-    if os.path.exists(bin_path):
-        subprocess.Popen([bin_path, arg])
-    else:
-        subprocess.Popen(["langswitch", arg])
+    arg = "--convert-and-switch" if switch_layout else "--convert-only"
+    log_debug(f"trigger_langswitch_convert called: {arg}")
+    try:
+        if os.path.exists(bin_path):
+            subprocess.Popen([bin_path, arg])
+        else:
+            subprocess.Popen(["langswitch", arg])
+    except Exception as e:
+        log_debug(f"trigger_langswitch_convert failed: {e}")
+
+_listener_started = False
+
+def start_x11_hotkey_listener():
+    """
+    Starts an X11 global hotkey listener in a background daemon thread.
+    Grabs F10 and Ctrl+F10 on the root window using XGrabKey.
+    Zero external dependencies - uses ctypes and standard libX11.so.6.
+    """
+    global _listener_started
+    if _listener_started:
+        return
+    _listener_started = True
+
+    def _listener_worker():
+        try:
+            x11_lib_names = ["libX11.so.6", "libX11.so", "/usr/lib/x86_64-linux-gnu/libX11.so.6"]
+            x11 = None
+            for name in x11_lib_names:
+                try:
+                    x11 = ctypes.cdll.LoadLibrary(name)
+                    break
+                except Exception:
+                    continue
+            if not x11:
+                log_debug("libX11.so not found, skipping X11 hotkey listener.")
+                return
+
+            x11.XOpenDisplay.argtypes = [c_char_p]
+            x11.XOpenDisplay.restype = c_void_p
+
+            x11.XDefaultRootWindow.argtypes = [c_void_p]
+            x11.XDefaultRootWindow.restype = c_ulong
+
+            x11.XStringToKeysym.argtypes = [c_char_p]
+            x11.XStringToKeysym.restype = c_ulong
+
+            x11.XKeysymToKeycode.argtypes = [c_void_p, c_ulong]
+            x11.XKeysymToKeycode.restype = ctypes.c_ubyte
+
+            x11.XGrabKey.argtypes = [c_void_p, c_int, c_uint, c_ulong, c_int, c_int, c_int]
+            x11.XGrabKey.restype = c_int
+
+            x11.XNextEvent.argtypes = [c_void_p, c_void_p]
+            x11.XNextEvent.restype = c_int
+
+            # Set an empty error handler so XGrabKey BadAccess never crashes Python
+            ERROR_HANDLER_FUNC = CFUNCTYPE(c_int, c_void_p, c_void_p)
+            def py_error_handler(display, error_event):
+                return 0
+            c_error_handler = ERROR_HANDLER_FUNC(py_error_handler)
+            x11.XSetErrorHandler(c_error_handler)
+
+            display = x11.XOpenDisplay(None)
+            if not display:
+                log_debug("Cannot open X11 Display (possibly pure Wayland).")
+                return
+
+            root = x11.XDefaultRootWindow(display)
+
+            keysym_f10 = x11.XStringToKeysym(b"F10")
+            if not keysym_f10:
+                keysym_f10 = 0xFFC7
+            keycode_f10 = x11.XKeysymToKeycode(display, keysym_f10)
+
+            if not keycode_f10:
+                log_debug("Failed to resolve keycode for F10.")
+                return
+
+            log_debug(f"X11 Display opened. Root: {root}, F10 Keycode: {keycode_f10}")
+
+            # Grab F10 across CapsLock (2) and NumLock (16) states
+            base_masks = [0, 2, 16, 18]
+            # Grab Ctrl+F10 across CapsLock (2) and NumLock (16) states
+            ctrl_masks = [4, 6, 20, 22]
+
+            for m in base_masks:
+                x11.XGrabKey(display, keycode_f10, m, root, False, 1, 1)
+            for m in ctrl_masks:
+                x11.XGrabKey(display, keycode_f10, m, root, False, 1, 1)
+
+            log_debug("Successfully grabbed F10 and Ctrl+F10 on root window via XGrabKey!")
+
+            class XKeyEventStruct(ctypes.Structure):
+                _fields_ = [
+                    ("type", c_int),
+                    ("serial", c_ulong),
+                    ("send_event", c_int),
+                    ("display", c_void_p),
+                    ("window", c_ulong),
+                    ("root", c_ulong),
+                    ("subwindow", c_ulong),
+                    ("time", c_ulong),
+                    ("x", c_int),
+                    ("y", c_int),
+                    ("x_root", c_int),
+                    ("y_root", c_int),
+                    ("state", c_uint),
+                    ("keycode", c_uint),
+                    ("same_screen", c_int)
+                ]
+
+            event_buf = (ctypes.c_char * 192)()
+            key_event = ctypes.cast(byref(event_buf), POINTER(XKeyEventStruct))
+
+            KeyPress = 2
+            while True:
+                x11.XNextEvent(display, byref(event_buf))
+                if key_event.contents.type == KeyPress:
+                    pressed_keycode = key_event.contents.keycode
+                    state = key_event.contents.state
+                    if pressed_keycode == keycode_f10:
+                        is_ctrl = bool(state & 4)
+                        # F10 alone converts and switches layout! Ctrl+F10 converts only!
+                        switch_layout = not is_ctrl
+                        log_debug(f"Global Hotkey captured: {'Ctrl+F10 (convert only)' if is_ctrl else 'F10 (convert & switch)'}")
+                        threading.Thread(
+                            target=trigger_langswitch_convert,
+                            args=(switch_layout,),
+                            daemon=True
+                        ).start()
+        except Exception as e:
+            log_debug(f"X11 hotkey listener crashed: {e}")
+
+    t = threading.Thread(target=_listener_worker, daemon=True, name="X11HotkeyListener")
+    t.start()
 
 def run_gtk():
     import gi
@@ -318,7 +508,7 @@ def run_gtk():
             self.entry.set_position(-1)
 
             # Switch system keyboard layout!
-            switch_system_layout()
+            switch_system_layout(direction)
             dir_name = "עברית" if direction == "he" else "אנגלית"
             self.lbl_feedback.set_text(f"✅ הטקסט הומר ל-{dir_name} ושפת המקלדת הוחלפה בהצלחה!")
 
@@ -360,13 +550,18 @@ def run_gtk():
             item_open.connect("activate", lambda w: (self.show_all(), self.present()))
             menu.append(item_open)
 
-            # Convert Now
-            item_conv = Gtk.MenuItem(label="🔄 בצע המרה עכשיו (F10)")
-            item_conv.connect("activate", lambda w: trigger_langswitch_convert(False))
+            # Convert & Switch (F10)
+            item_conv = Gtk.MenuItem(label="🔄 המרת טקסט והחלפת מקלדת (F10)")
+            item_conv.connect("activate", lambda w: trigger_langswitch_convert(True))
             menu.append(item_conv)
 
+            # Convert Only (Ctrl+F10)
+            item_conv_only = Gtk.MenuItem(label="📝 המרת טקסט בלבד (Ctrl+F10)")
+            item_conv_only.connect("activate", lambda w: trigger_langswitch_convert(False))
+            menu.append(item_conv_only)
+
             # Toggle Layout
-            item_toggle = Gtk.MenuItem(label="🌐 החלף שפת מקלדת")
+            item_toggle = Gtk.MenuItem(label="🌐 החלף שפת מקלדת בלבד")
             item_toggle.connect("activate", lambda w: switch_system_layout())
             menu.append(item_toggle)
 
@@ -386,7 +581,25 @@ def run_gtk():
             return menu
 
         def setup_tray_icon(self):
-            # 1. Try AyatanaAppIndicator3 or AppIndicator3
+            # 1. Try XApp.StatusIcon (Native in Linux Mint Cinnamon, MATE, XFCE)
+            try:
+                gi.require_version('XApp', '1.0')
+                from gi.repository import XApp
+                self.xapp_icon = XApp.StatusIcon()
+                if os.path.exists(self.icon_path):
+                    self.xapp_icon.set_icon_name(self.icon_path)
+                else:
+                    self.xapp_icon.set_icon_name("langswitch")
+                self.xapp_icon.set_tooltip_text("⚡ LangSwitch - פעיל (F10 להמרה)")
+                self.xapp_icon.set_primary_menu(self.create_tray_menu())
+                self.xapp_icon.connect("activate", lambda icon, button, time: (self.show_all(), self.present()))
+                self.xapp_icon.set_visible(True)
+                log_debug("XApp.StatusIcon initialized successfully.")
+                return
+            except Exception as e:
+                log_debug(f"XApp.StatusIcon not available: {e}")
+
+            # 2. Try AyatanaAppIndicator3 or AppIndicator3 (Ubuntu / Debian / Fedora GNOME)
             self.indicator = None
             try:
                 gi.require_version('AyatanaAppIndicator3', '0.1')
@@ -411,9 +624,10 @@ def run_gtk():
             if self.indicator:
                 self.indicator.set_status(appindicator.IndicatorStatus.ACTIVE)
                 self.indicator.set_menu(self.create_tray_menu())
+                log_debug("AppIndicator initialized successfully.")
                 return
 
-            # 2. Fallback to Gtk.StatusIcon (built into Gtk 3, native in Mint Cinnamon)
+            # 3. Fallback to Gtk.StatusIcon (built into Gtk 3)
             try:
                 self.status_icon = Gtk.StatusIcon()
                 if os.path.exists(self.icon_path):
@@ -429,8 +643,9 @@ def run_gtk():
 
                 self.status_icon.connect("popup-menu", on_popup)
                 self.status_icon.set_visible(True)
+                log_debug("Gtk.StatusIcon initialized successfully.")
             except Exception as e:
-                print(f"Tray status icon fallback notice: {e}")
+                log_debug(f"Tray status icon fallback notice: {e}")
 
     start_minimized = "--tray" in sys.argv
     win = WelcomeWindow(start_minimized=start_minimized)
@@ -453,6 +668,12 @@ def run_tkinter():
     root.mainloop()
 
 if __name__ == "__main__":
+    # Start X11 global hotkey listener immediately in background daemon thread
+    try:
+        start_x11_hotkey_listener()
+    except Exception as e:
+        log_debug(f"Failed starting X11 hotkey listener: {e}")
+
     try:
         run_gtk()
     except Exception as e:

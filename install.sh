@@ -182,13 +182,13 @@ try:
     subprocess.run(["gsettings", "set", "org.cinnamon.desktop.keybindings", "custom-list", str(lst)], stderr=subprocess.DEVNULL)
 
     p1 = f"org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{slot1}/"
-    subprocess.run(["gsettings", "set", p1, "name", "LangSwitch Convert"], stderr=subprocess.DEVNULL)
-    subprocess.run(["gsettings", "set", p1, "command", f"{target_bin} --convert"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p1, "name", "LangSwitch Convert & Switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p1, "command", f"{target_bin} --convert-and-switch"], stderr=subprocess.DEVNULL)
     subprocess.run(["gsettings", "set", p1, "binding", "['F10']"], stderr=subprocess.DEVNULL)
 
     p2 = f"org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{slot2}/"
-    subprocess.run(["gsettings", "set", p2, "name", "LangSwitch Convert & Switch"], stderr=subprocess.DEVNULL)
-    subprocess.run(["gsettings", "set", p2, "command", f"{target_bin} --convert-and-switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p2, "name", "LangSwitch Convert Only"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p2, "command", f"{target_bin} --convert-only"], stderr=subprocess.DEVNULL)
     subprocess.run(["gsettings", "set", p2, "binding", "['<Control>F10']"], stderr=subprocess.DEVNULL)
 except Exception:
     pass
@@ -204,11 +204,11 @@ try:
     if p1 not in lst: lst.append(p1)
     if p2 not in lst: lst.append(p2)
     subprocess.run(["gsettings", "set", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings", str(lst)], stderr=subprocess.DEVNULL)
-    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p1}", "name", "LangSwitch Convert"], stderr=subprocess.DEVNULL)
-    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p1}", "command", f"{target_bin} --convert"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p1}", "name", "LangSwitch Convert & Switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p1}", "command", f"{target_bin} --convert-and-switch"], stderr=subprocess.DEVNULL)
     subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p1}", "binding", "F10"], stderr=subprocess.DEVNULL)
-    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p2}", "name", "LangSwitch Convert & Switch"], stderr=subprocess.DEVNULL)
-    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p2}", "command", f"{target_bin} --convert-and-switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p2}", "name", "LangSwitch Convert Only"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p2}", "command", f"{target_bin} --convert-only"], stderr=subprocess.DEVNULL)
     subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{p2}", "binding", "<Control>F10"], stderr=subprocess.DEVNULL)
 except Exception:
     pass
@@ -329,19 +329,23 @@ echo "🎉 ההתקנה הושלמה בהצלחה! (Installation Successful!)"
 echo "============================================================"
 echo -e "${NC}"
 echo -e "מקשי קיצור שהוגדרו במערכת:"
-echo -e "  • ${BOLD}F10${NC}       - המרת טקסט מסומן או שורה נוכחית (עברית ↔ אנגלית)"
-echo -e "  • ${BOLD}Ctrl+F10${NC}  - המרת טקסט והחלפת שפת קלט המקלדת"
+echo -e "  • ${BOLD}F10${NC}       - המרת טקסט והחלפת שפת מקלדת אוטומטית (עברית ↔ אנגלית)"
+echo -e "  • ${BOLD}Ctrl+F10${NC}  - המרת טקסט בלבד (ללא החלפת מקלדת)"
 echo ""
 echo -e "בדיקת תקינות המערכת (Diagnostics):"
 "$TARGET_BIN" --status || true
 echo ""
 echo -e "לפרטים והגדרות נוספות: ${CYAN}langswitch --status${NC}"
+echo -e "יומן פעולות דיאגנוסטיקה: ${YELLOW}cat /tmp/langswitch.log${NC}"
 echo "תהנה מ-LangSwitch! ⚡"
 
 # 11. Launch the Welcome Screen GUI immediately!
 if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
     echo ""
     echo -e "${CYAN}🚀 פותח את מסך הפתיחה (Welcome Screen)...${NC}"
+    pkill -f langswitch-welcome 2>/dev/null || true
+    pkill -f "welcome_linux" 2>/dev/null || true
+    sleep 0.5
     if command -v python3 >/dev/null 2>&1 && [ -f "$WELCOME_BIN" ]; then
         python3 "$WELCOME_BIN" >/dev/null 2>&1 &
     else

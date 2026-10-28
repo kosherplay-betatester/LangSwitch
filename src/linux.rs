@@ -247,6 +247,13 @@ pub fn send_copy(display: DisplayServer) {
     }
 }
 
+/// Diagnostic logger for Linux operations (writes to /tmp/langswitch.log).
+pub fn log_linux(msg: &str) {
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open("/tmp/langswitch.log") {
+        let _ = writeln!(f, "[LangSwitch-Core] {}", msg);
+    }
+}
+
 /// Automatically selects current line (Home + Shift+End + Ctrl+C) with brief key spacing.
 pub fn select_current_line(display: DisplayServer) {
     match display {
@@ -263,11 +270,9 @@ pub fn select_current_line(display: DisplayServer) {
         }
         DisplayServer::X11 => {
             if command_exists("xdotool") {
-                let _ = Command::new("xdotool").args(["key", "--clearmodifiers", "Home"]).status();
-                thread::sleep(Duration::from_millis(20));
-                let _ = Command::new("xdotool").args(["key", "--clearmodifiers", "shift+End"]).status();
-                thread::sleep(Duration::from_millis(20));
-                let _ = Command::new("xdotool").args(["key", "--clearmodifiers", "ctrl+c"]).status();
+                let _ = Command::new("xdotool")
+                    .args(["key", "--clearmodifiers", "--delay", "25", "Home", "Shift+End", "ctrl+c"])
+                    .status();
             }
         }
         DisplayServer::Unknown => {}
@@ -276,7 +281,7 @@ pub fn select_current_line(display: DisplayServer) {
 
 /// Simulates pasting from clipboard (Ctrl+V).
 pub fn send_paste(display: DisplayServer) {
-    thread::sleep(Duration::from_millis(25));
+    thread::sleep(Duration::from_millis(30));
     match display {
         DisplayServer::Wayland => {
             if command_exists("wtype") {
@@ -301,27 +306,60 @@ pub fn send_paste(display: DisplayServer) {
 /// Switches keyboard layout dynamically without altering system layout tables.
 pub fn switch_keyboard_layout(display: DisplayServer) {
     let de = detect_desktop_environment().to_lowercase();
+    log_linux(&format!("switch_keyboard_layout called. DE: {}, Display: {}", de, display));
 
-    // 1. X11 desktops (Linux Mint Cinnamon, MATE, XFCE): safely simulate user's switch shortcut
-    if display == DisplayServer::X11 && command_exists("xdotool") {
-        let mut shortcut = "super+space";
-        if let Ok(out) = Command::new("gsettings")
-            .args(["get", "org.cinnamon.desktop.input-sources", "xkb-options"])
-            .output()
-        {
-            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-            if text.contains("alt_shift") {
-                shortcut = "alt+shift";
-            } else if text.contains("ctrl_shift") {
-                shortcut = "ctrl+shift";
-            } else if text.contains("super_space") || text.contains("win_space") {
-                shortcut = "super+space";
+    // 1. X11 desktops (Linux Mint Cinnamon, MATE, XFCE):
+    // Use direct X11 XkbLockGroup via Python ctypes (native, zero layout table disruption, 100% reliable)
+    if display == DisplayServer::X11 {
+        let py_cmd = r#"
+import ctypes
+try:
+    for name in ['libX11.so.6', 'libX11.so', '/usr/lib/x86_64-linux-gnu/libX11.so.6']:
+        try:
+            x11 = ctypes.cdll.LoadLibrary(name)
+            break
+        except Exception:
+            continue
+    if x11:
+        class XkbStateRec(ctypes.Structure):
+            _fields_ = [('group', ctypes.c_ubyte), ('pad', ctypes.c_ubyte * 17)]
+        d = x11.XOpenDisplay(None)
+        if d:
+            s = XkbStateRec()
+            x11.XkbGetState(d, 0x0100, ctypes.byref(s))
+            next_g = 1 if s.group == 0 else 0
+            x11.XkbLockGroup(d, 0x0100, next_g)
+            x11.XCloseDisplay(d)
+            print('OK')
+except Exception:
+    pass
+"#;
+        if let Ok(out) = Command::new("python3").args(["-c", py_cmd]).output() {
+            if String::from_utf8_lossy(&out.stdout).contains("OK") {
+                log_linux("Switched layout group using native XkbLockGroup (direct X11).");
+                return;
             }
         }
-        let _ = Command::new("xdotool")
-            .args(["key", "--clearmodifiers", shortcut])
-            .status();
-        return;
+
+        // Fallback to simulating the user's toggle shortcut with xdotool
+        if command_exists("xdotool") {
+            let mut shortcut = "super+space";
+            if let Ok(out) = Command::new("setxkbmap").arg("-query").output() {
+                let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+                if text.contains("alt_shift") {
+                    shortcut = "alt+shift";
+                } else if text.contains("ctrl_shift") {
+                    shortcut = "ctrl+shift";
+                } else if text.contains("win_space") || text.contains("super_space") {
+                    shortcut = "super+space";
+                }
+            }
+            let _ = Command::new("xdotool")
+                .args(["key", "--clearmodifiers", shortcut])
+                .status();
+            log_linux(&format!("Switched layout via xdotool shortcut simulation: {}", shortcut));
+            return;
+        }
     }
 
     // 2. GNOME Shell on Wayland (Fedora / Ubuntu)
@@ -337,6 +375,7 @@ pub fn switch_keyboard_layout(display: DisplayServer) {
                 gnome_script,
             ])
             .output();
+        log_linux("Switched layout via GNOME Shell Eval.");
         return;
     }
 
@@ -345,6 +384,7 @@ pub fn switch_keyboard_layout(display: DisplayServer) {
         let _ = Command::new("qdbus")
             .args(["org.kde.keyboard", "/Layouts", "switchToNextLayout"])
             .output();
+        log_linux("Switched layout via KDE qdbus.");
     }
 }
 
@@ -352,6 +392,10 @@ pub fn switch_keyboard_layout(display: DisplayServer) {
 pub fn perform_conversion(switch_layout_always: bool) {
     let display = detect_display_server();
     let config = AppConfig::load();
+    log_linux(&format!(
+        "perform_conversion triggered. Display: {}, switch_always: {}, auto_switch: {}, auto_select_line: {}",
+        display, switch_layout_always, config.auto_switch_layout, config.auto_select_line
+    ));
 
     // 1. Critical: Wait 150ms for physical hotkey (F10 / Ctrl+F10) to be released by user.
     // Without this delay, active apps (like Chrome / Telegram) receive stuck modifier events or menu focus!
@@ -366,43 +410,54 @@ pub fn perform_conversion(switch_layout_always: bool) {
 
     let mut selected_text = get_clipboard_text(display);
 
-    // 4. If nothing was highlighted and auto_select_line is enabled: select line & copy
-    if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) && config.auto_select_line {
-        clear_clipboard(display);
-        select_current_line(display);
-        thread::sleep(Duration::from_millis(120));
-        selected_text = get_clipboard_text(display);
-    }
-
-    // 5. Fallback to PRIMARY selection if clipboard is still empty
+    // 4. Fallback to PRIMARY selection if clipboard is still empty (mouse drag selection in X11)
     if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
         if let Some(pri) = get_primary_selection(display) {
             if !pri.trim().is_empty() {
+                log_linux(&format!("Found text in PRIMARY selection: {:?}", pri));
                 selected_text = Some(pri);
             }
         }
     }
 
+    // 5. If nothing was highlighted and auto_select_line is enabled: select line & copy
+    if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) && config.auto_select_line {
+        log_linux("No selection found. Falling back to select_current_line (Home Shift+End ctrl+c)...");
+        clear_clipboard(display);
+        select_current_line(display);
+        thread::sleep(Duration::from_millis(150));
+        selected_text = get_clipboard_text(display);
+    }
+
     let raw_text = match selected_text {
         Some(t) if !t.is_empty() => t,
-        _ => return,
+        _ => {
+            log_linux("perform_conversion: No text captured from clipboard or selection. Aborting.");
+            return;
+        }
     };
+    log_linux(&format!("Raw text captured: {:?}", raw_text));
 
     // 6. Convert text using converter engine
-    let (converted, _) = converter::convert_text(&raw_text);
+    let (converted, direction) = converter::convert_text(&raw_text);
     if converted == raw_text {
+        log_linux("Converted text is identical to raw text. Nothing to change.");
         return;
     }
+    log_linux(&format!("Converted text: {:?} (direction: {:?})", converted, direction));
 
     // 7. Save converted text to clipboard & paste
     if set_clipboard_text(&converted, display) {
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(60));
         send_paste(display);
+        log_linux("Converted text pasted successfully.");
+    } else {
+        log_linux("Failed to write converted text to clipboard.");
     }
 
-    // 8. Safely toggle layout using user's configured shortcut without altering layout lists
+    // 8. Safely toggle layout using direct X11 XkbLockGroup or configured shortcut
     if switch_layout_always || config.auto_switch_layout {
-        thread::sleep(Duration::from_millis(80));
+        thread::sleep(Duration::from_millis(100));
         switch_keyboard_layout(display);
     }
 }

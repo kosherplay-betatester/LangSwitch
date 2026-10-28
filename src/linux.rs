@@ -545,7 +545,7 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
             .args(["set", "org.cinnamon.desktop.interface", "menubar-accel", ""])
             .status();
 
-        let mut list = vec!["'langswitch0'".to_string(), "'langswitch1'".to_string()];
+        let mut list = vec!["'custom0'".to_string(), "'custom1'".to_string(), "'langswitch0'".to_string(), "'langswitch1'".to_string()];
         if let Ok(output) = Command::new("gsettings")
             .args(["get", "org.cinnamon.desktop.keybindings", "custom-list"])
             .output()
@@ -558,6 +558,10 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
                     for item in inner.split(',') {
                         let trimmed = item.trim();
                         if !trimmed.is_empty()
+                            && trimmed != "'custom0'"
+                            && trimmed != "\"custom0\""
+                            && trimmed != "'custom1'"
+                            && trimmed != "\"custom1\""
                             && trimmed != "'langswitch0'"
                             && trimmed != "\"langswitch0\""
                             && trimmed != "'langswitch1'"
@@ -575,26 +579,36 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
             .status();
 
         let cmd1 = format!("\"{}\" --convert", exe_path);
-        let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/", "name", "LangSwitch Convert"])
-            .status();
-        let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/", "command", &cmd1])
-            .status();
-        let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/", "binding", "['F10']"])
-            .status();
-
         let cmd2 = format!("\"{}\" --convert-and-switch", exe_path);
-        let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "name", "LangSwitch Convert & Switch"])
-            .status();
-        let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "command", &cmd2])
-            .status();
-        let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/", "binding", "['<Control>F10']"])
-            .status();
+
+        // Bind custom0 and langswitch0 to F10
+        for slot in ["custom0", "langswitch0"] {
+            let path = format!("org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{}/", slot);
+            let _ = Command::new("gsettings").args(["set", &path, "name", "LangSwitch Convert"]).status();
+            let _ = Command::new("gsettings").args(["set", &path, "command", &cmd1]).status();
+            let _ = Command::new("gsettings").args(["set", &path, "binding", "['F10']"]).status();
+        }
+
+        // Bind custom1 and langswitch1 to Ctrl+F10
+        for slot in ["custom1", "langswitch1"] {
+            let path = format!("org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{}/", slot);
+            let _ = Command::new("gsettings").args(["set", &path, "name", "LangSwitch Convert & Switch"]).status();
+            let _ = Command::new("gsettings").args(["set", &path, "command", &cmd2]).status();
+            let _ = Command::new("gsettings").args(["set", &path, "binding", "['<Control>F10']"]).status();
+        }
+
+        // Also register under GNOME media-keys (used by older Cinnamon and MATE)
+        let p1 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-convert/";
+        let p2 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-switch/";
+        let gnome_list = format!("['{}', '{}']", p1, p2);
+        let _ = Command::new("gsettings").args(["set", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings", &gnome_list]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "name", "LangSwitch Convert"]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "command", &cmd1]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "binding", "F10"]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "name", "LangSwitch Convert & Switch"]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "command", &cmd2]).status();
+        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "binding", "<Control>F10"]).status();
+
         println!("✅ קיצורי הדרך F10 ו-Ctrl+F10 הוגדרו בהצלחה ב-Linux Mint Cinnamon!");
         return;
     }

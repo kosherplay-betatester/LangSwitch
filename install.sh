@@ -111,21 +111,38 @@ if command -v gsettings >/dev/null 2>&1; then
     # Direct setup for Cinnamon if detected
     if [[ "$DE" =~ [Cc]innamon ]]; then
         CINNAMON_LIST=$(gsettings get org.cinnamon.desktop.keybindings custom-list 2>/dev/null || echo "[]")
-        if [[ "$CINNAMON_LIST" != *"langswitch0"* ]]; then
+        if [[ "$CINNAMON_LIST" != *"custom0"* ]]; then
             if [[ "$CINNAMON_LIST" == "[]" || "$CINNAMON_LIST" == "@as []" ]]; then
-                NEW_CINNAMON="['langswitch0', 'langswitch1']"
+                NEW_CINNAMON="['custom0', 'custom1', 'langswitch0', 'langswitch1']"
             else
-                NEW_CINNAMON=$(echo "$CINNAMON_LIST" | sed "s/]/, 'langswitch0', 'langswitch1']/")
+                NEW_CINNAMON=$(echo "$CINNAMON_LIST" | sed "s/]/, 'custom0', 'custom1', 'langswitch0', 'langswitch1']/")
             fi
             gsettings set org.cinnamon.desktop.keybindings custom-list "$NEW_CINNAMON" 2>/dev/null || true
         fi
-        gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/ name "LangSwitch Convert" 2>/dev/null || true
-        gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/ command "$TARGET_BIN --convert" 2>/dev/null || true
-        gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch0/ binding "['F10']" 2>/dev/null || true
 
-        gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/ name "LangSwitch Convert & Switch" 2>/dev/null || true
-        gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/ command "$TARGET_BIN --convert-and-switch" 2>/dev/null || true
-        gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/langswitch1/ binding "['<Control>F10']" 2>/dev/null || true
+        # Register both standard Cinnamon custom0/custom1 and fallback langswitch0/langswitch1
+        for slot in custom0 langswitch0; do
+            gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/$slot/ name "LangSwitch Convert" 2>/dev/null || true
+            gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/$slot/ command "$TARGET_BIN --convert" 2>/dev/null || true
+            gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/$slot/ binding "['F10']" 2>/dev/null || true
+        done
+
+        for slot in custom1 langswitch1; do
+            gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/$slot/ name "LangSwitch Convert & Switch" 2>/dev/null || true
+            gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/$slot/ command "$TARGET_BIN --convert-and-switch" 2>/dev/null || true
+            gsettings set org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/$slot/ binding "['<Control>F10']" 2>/dev/null || true
+        done
+
+        # Also register in GNOME media-keys (recognized by older Cinnamon & MATE)
+        P1="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-convert/"
+        P2="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-switch/"
+        gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "['$P1', '$P2']" 2>/dev/null || true
+        gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P1" name "LangSwitch Convert" 2>/dev/null || true
+        gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P1" command "$TARGET_BIN --convert" 2>/dev/null || true
+        gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P1" binding "F10" 2>/dev/null || true
+        gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P2" name "LangSwitch Convert & Switch" 2>/dev/null || true
+        gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P2" command "$TARGET_BIN --convert-and-switch" 2>/dev/null || true
+        gsettings set "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P2" binding "<Control>F10" 2>/dev/null || true
     fi
 fi
 

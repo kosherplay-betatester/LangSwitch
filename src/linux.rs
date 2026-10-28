@@ -298,37 +298,33 @@ pub fn send_paste(display: DisplayServer) {
     }
 }
 
-/// Switches keyboard layout dynamically based on desktop environment and conversion direction.
-pub fn switch_keyboard_layout(display: DisplayServer, direction: converter::ConversionDirection) {
+/// Switches keyboard layout dynamically without altering system layout tables.
+pub fn switch_keyboard_layout(display: DisplayServer) {
     let de = detect_desktop_environment().to_lowercase();
 
-    // 1. Direct X11 setxkbmap (Works across all X11 desktops: Cinnamon, MATE, XFCE, i3)
-    if display == DisplayServer::X11 && command_exists("setxkbmap") {
-        let lang = match direction {
-            converter::ConversionDirection::EnglishToHebrew => "il",
-            converter::ConversionDirection::HebrewToEnglish => "us",
-        };
-        let _ = Command::new("setxkbmap").arg(lang).output();
+    // 1. X11 desktops (Linux Mint Cinnamon, MATE, XFCE): safely simulate user's switch shortcut
+    if display == DisplayServer::X11 && command_exists("xdotool") {
+        let mut shortcut = "super+space";
+        if let Ok(out) = Command::new("gsettings")
+            .args(["get", "org.cinnamon.desktop.input-sources", "xkb-options"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            if text.contains("alt_shift") {
+                shortcut = "alt+shift";
+            } else if text.contains("ctrl_shift") {
+                shortcut = "ctrl+shift";
+            } else if text.contains("super_space") || text.contains("win_space") {
+                shortcut = "super+space";
+            }
+        }
+        let _ = Command::new("xdotool")
+            .args(["key", "--clearmodifiers", shortcut])
+            .status();
+        return;
     }
 
-    // 2. GNOME / Cinnamon / MATE via gsettings org.gnome.desktop.input-sources current
-    if command_exists("gsettings") {
-        let _ = (|| -> Option<()> {
-            let out = Command::new("gsettings")
-                .args(["get", "org.gnome.desktop.input-sources", "current"])
-                .output().ok()?;
-            if !out.status.success() { return None; }
-            let current_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let curr_idx: u32 = current_str.split_whitespace().last()?.parse().ok()?;
-            let next_idx = if curr_idx == 0 { 1 } else { 0 };
-            let _ = Command::new("gsettings")
-                .args(["set", "org.gnome.desktop.input-sources", "current", &next_idx.to_string()])
-                .output();
-            Some(())
-        })();
-    }
-
-    // 3. GNOME Eval fallback (Fedora / Ubuntu GNOME Shell)
+    // 2. GNOME Shell on Wayland (Fedora / Ubuntu)
     if de.contains("gnome") {
         let gnome_script = "imports.ui.status.keyboard.getInputSourceManager()._switchInputSource();";
         let _ = Command::new("gdbus")
@@ -341,9 +337,10 @@ pub fn switch_keyboard_layout(display: DisplayServer, direction: converter::Conv
                 gnome_script,
             ])
             .output();
+        return;
     }
 
-    // 4. KDE Plasma fallback
+    // 3. KDE Plasma fallback
     if de.contains("kde") || de.contains("plasma") {
         let _ = Command::new("qdbus")
             .args(["org.kde.keyboard", "/Layouts", "switchToNextLayout"])
@@ -356,28 +353,28 @@ pub fn perform_conversion(switch_layout_always: bool) {
     let display = detect_display_server();
     let config = AppConfig::load();
 
-    // 1. Clear clipboard first so we never read stale text
+    // 1. Critical: Wait 150ms for physical hotkey (F10 / Ctrl+F10) to be released by user.
+    // Without this delay, active apps (like Chrome / Telegram) receive stuck modifier events or menu focus!
+    thread::sleep(Duration::from_millis(150));
+
+    // 2. Clear clipboard first so we can detect freshly copied text
     clear_clipboard(display);
 
-    // 2. Send Ctrl+C to copy whatever text is currently highlighted in the focused application (Chrome, Telegram, etc.)
+    // 3. Send Ctrl+C to copy whatever text is currently highlighted
     send_copy(display);
-    thread::sleep(Duration::from_millis(45));
+    thread::sleep(Duration::from_millis(120));
 
     let mut selected_text = get_clipboard_text(display);
 
-    // 3. If nothing was highlighted and auto_select_line is enabled, select line & copy
+    // 4. If nothing was highlighted and auto_select_line is enabled: select line & copy
     if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) && config.auto_select_line {
         clear_clipboard(display);
         select_current_line(display);
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(120));
         selected_text = get_clipboard_text(display);
-        if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
-            thread::sleep(Duration::from_millis(40));
-            selected_text = get_clipboard_text(display);
-        }
     }
 
-    // 4. Fallback to PRIMARY selection if clipboard is still empty
+    // 5. Fallback to PRIMARY selection if clipboard is still empty
     if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
         if let Some(pri) = get_primary_selection(display) {
             if !pri.trim().is_empty() {
@@ -391,22 +388,22 @@ pub fn perform_conversion(switch_layout_always: bool) {
         _ => return,
     };
 
-    // 5. Convert text using converter engine
-    let (converted, direction) = converter::convert_text(&raw_text);
+    // 6. Convert text using converter engine
+    let (converted, _) = converter::convert_text(&raw_text);
     if converted == raw_text {
         return;
     }
 
-    // 6. Save converted text to clipboard & paste
+    // 7. Save converted text to clipboard & paste
     if set_clipboard_text(&converted, display) {
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(50));
         send_paste(display);
     }
 
-    // 7. Switch layout if primary hotkey (auto_switch_layout) or secondary forced
+    // 8. Safely toggle layout using user's configured shortcut without altering layout lists
     if switch_layout_always || config.auto_switch_layout {
-        thread::sleep(Duration::from_millis(35));
-        switch_keyboard_layout(display, direction);
+        thread::sleep(Duration::from_millis(80));
+        switch_keyboard_layout(display);
     }
 }
 

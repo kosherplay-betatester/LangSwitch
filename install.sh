@@ -42,6 +42,15 @@ fi
 DE="${XDG_CURRENT_DESKTOP:-$DESKTOP_SESSION}"
 echo -e "${BLUE}ℹ️  סביבת שולחן עבודה:${NC} ${BOLD}$DE${NC} (${DISPLAY_NAME})"
 
+# Self-healing: verify both English and Hebrew layouts exist with toggle
+if command -v setxkbmap >/dev/null 2>&1; then
+    CURRENT_LAYOUTS=$(setxkbmap -query 2>/dev/null | grep -E '^layout:' | awk '{print $2}')
+    if [ -n "$CURRENT_LAYOUTS" ] && [[ "$CURRENT_LAYOUTS" != *"il"* ]]; then
+        echo -e "${YELLOW}ℹ️  מוודא הגדרת שפות מקלדת: מוסיף עברית לצד אנגלית עם מעבר Win+Space...${NC}"
+        setxkbmap -layout "$CURRENT_LAYOUTS,il" -option grp:win_space_toggle 2>/dev/null || true
+    fi
+fi
+
 # 3. Detect Distro & Package Manager
 DISTRO="Linux"
 PKG_MGR=""

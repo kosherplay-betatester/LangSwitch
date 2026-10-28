@@ -35,28 +35,28 @@ def convert_text(input_str: str):
             res.append(c)
     return "".join(res), direction
 
-def switch_system_layout(target_lang=None):
-    """Natively switches keyboard layout in Linux Mint (Cinnamon), GNOME, MATE and X11"""
-    # 1. Direct X11 setxkbmap (Works across all X11 desktops)
-    if target_lang == "he":
-        subprocess.run(["setxkbmap", "il"], stderr=subprocess.DEVNULL)
-    elif target_lang == "en":
-        subprocess.run(["setxkbmap", "us"], stderr=subprocess.DEVNULL)
-
-    # 2. GNOME / Cinnamon / MATE via gsettings org.gnome.desktop.input-sources current
+def switch_system_layout():
+    """Safely toggles keyboard layout using the user's configured shortcut without altering layout lists"""
+    shortcut = "super+space"
+    # 1. Detect configured shortcut from Cinnamon xkb-options
     try:
         out = subprocess.check_output(
-            ["gsettings", "get", "org.gnome.desktop.input-sources", "current"],
+            ["gsettings", "get", "org.cinnamon.desktop.input-sources", "xkb-options"],
             stderr=subprocess.DEVNULL,
             timeout=1
-        ).decode().strip()
-        curr_idx = int(out.split()[-1])
-        next_idx = 1 if curr_idx == 0 else 0
-        subprocess.run(
-            ["gsettings", "set", "org.gnome.desktop.input-sources", "current", str(next_idx)],
-            stderr=subprocess.DEVNULL,
-            timeout=1
-        )
+        ).decode().lower()
+        if "alt_shift" in out:
+            shortcut = "alt+shift"
+        elif "ctrl_shift" in out:
+            shortcut = "ctrl+shift"
+        elif "super_space" in out or "win_space" in out:
+            shortcut = "super+space"
+    except Exception:
+        pass
+
+    # 2. Simulate the user's layout switch shortcut
+    try:
+        subprocess.run(["xdotool", "key", "--clearmodifiers", shortcut], stderr=subprocess.DEVNULL)
     except Exception:
         pass
 
@@ -318,7 +318,7 @@ def run_gtk():
             self.entry.set_position(-1)
 
             # Switch system keyboard layout!
-            switch_system_layout(direction)
+            switch_system_layout()
             dir_name = "עברית" if direction == "he" else "אנגלית"
             self.lbl_feedback.set_text(f"✅ הטקסט הומר ל-{dir_name} ושפת המקלדת הוחלפה בהצלחה!")
 

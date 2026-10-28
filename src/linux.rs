@@ -475,10 +475,36 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
     // 1. GNOME (Fedora / Ubuntu / Debian)
     if de.contains("gnome") {
         println!("🔧 מגדיר אוטומטית מקשי קיצור ב-GNOME (Fedora / Ubuntu)...");
+
+        // Disable GTK F10 menu capture so F10 works globally without conflict
+        let _ = Command::new("gsettings")
+            .args(["set", "org.gnome.desktop.interface", "menubar-accel", ""])
+            .status();
+
         let p1 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-convert/";
         let p2 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-switch/";
 
-        let list_str = format!("['{}', '{}']", p1, p2);
+        let mut bindings = vec![format!("'{}'", p1), format!("'{}'", p2)];
+        if let Ok(output) = Command::new("gsettings")
+            .args(["get", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings"])
+            .output()
+        {
+            if output.status.success() {
+                let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let cleaned = current.trim_start_matches("@as").trim();
+                if cleaned.starts_with('[') && cleaned.ends_with(']') {
+                    let inner = &cleaned[1..cleaned.len() - 1];
+                    for item in inner.split(',') {
+                        let trimmed = item.trim();
+                        if !trimmed.is_empty() && !trimmed.contains("langswitch-") {
+                            bindings.push(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        let list_str = format!("[{}]", bindings.join(", "));
         let _ = Command::new("gsettings")
             .args(["set", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings", &list_str])
             .status();
@@ -513,8 +539,39 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
     // 2. Cinnamon (Linux Mint)
     if de.contains("cinnamon") || de.contains("x-cinnamon") {
         println!("🔧 מגדיר אוטומטית מקשי קיצור ב-Linux Mint (Cinnamon)...");
+
+        // Disable GTK F10 menu capture so F10 works globally without conflict
         let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings", "custom-list", "['langswitch0', 'langswitch1']"])
+            .args(["set", "org.cinnamon.desktop.interface", "menubar-accel", ""])
+            .status();
+
+        let mut list = vec!["'langswitch0'".to_string(), "'langswitch1'".to_string()];
+        if let Ok(output) = Command::new("gsettings")
+            .args(["get", "org.cinnamon.desktop.keybindings", "custom-list"])
+            .output()
+        {
+            if output.status.success() {
+                let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let cleaned = current.trim_start_matches("@as").trim();
+                if cleaned.starts_with('[') && cleaned.ends_with(']') {
+                    let inner = &cleaned[1..cleaned.len() - 1];
+                    for item in inner.split(',') {
+                        let trimmed = item.trim();
+                        if !trimmed.is_empty()
+                            && trimmed != "'langswitch0'"
+                            && trimmed != "\"langswitch0\""
+                            && trimmed != "'langswitch1'"
+                            && trimmed != "\"langswitch1\""
+                        {
+                            list.push(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        let list_str = format!("[{}]", list.join(", "));
+        let _ = Command::new("gsettings")
+            .args(["set", "org.cinnamon.desktop.keybindings", "custom-list", &list_str])
             .status();
 
         let cmd1 = format!("\"{}\" --convert", exe_path);

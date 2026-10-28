@@ -210,7 +210,8 @@ if [ ${#PACKAGES_TO_INSTALL[@]} -ne 0 ]; then
     if [ -e /dev/tty ]; then
         case "$PKG_MGR" in
             apt)
-                sudo </dev/tty apt-get update -qq && sudo </dev/tty apt-get install -y "${PACKAGES_TO_INSTALL[@]}" && INSTALLED=true || true
+                (sudo </dev/tty apt-get update -qq 2>/dev/null || true)
+                sudo </dev/tty apt-get install -y "${PACKAGES_TO_INSTALL[@]}" && INSTALLED=true || true
                 ;;
             dnf)
                 sudo </dev/tty dnf install -y "${PACKAGES_TO_INSTALL[@]}" && INSTALLED=true || true
@@ -241,7 +242,7 @@ if [ ${#PACKAGES_TO_INSTALL[@]} -ne 0 ]; then
         echo -e "${YELLOW}⚠️  שים לב: כדי שהמרת הטקסט עם מקש F10 תעבוד, הרץ בטרמינל:${NC}"
         case "$PKG_MGR" in
             apt)
-                echo -e "${BOLD}${CYAN}   sudo apt update && sudo apt install -y ${STILL_MISSING[*]}${NC}"
+                echo -e "${BOLD}${CYAN}   sudo apt install -y ${STILL_MISSING[*]}${NC}"
                 ;;
             dnf)
                 echo -e "${BOLD}${CYAN}   sudo dnf install -y ${STILL_MISSING[*]}${NC}"

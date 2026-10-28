@@ -28,7 +28,7 @@
 </div>
 
 ```bash
-sudo apt update && sudo apt install -y xclip xdotool && curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+sudo apt install -y xclip xdotool ; curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
 ```
 
 <div dir="rtl">
@@ -110,7 +110,7 @@ LangSwitch works out-of-the-box on all major Linux distributions:
 
 **Linux Mint / Ubuntu / Debian (Recommended & Fast):**
 ```bash
-sudo apt update && sudo apt install -y xclip xdotool && curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+sudo apt install -y xclip xdotool ; curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
 ```
 
 **Universal (Fedora, Arch Linux, openSUSE, etc.):**

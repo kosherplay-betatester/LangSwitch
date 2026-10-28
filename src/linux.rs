@@ -194,17 +194,68 @@ pub fn set_clipboard_text(text: &str, display: DisplayServer) -> bool {
     }
 }
 
-/// Automatically selects current line (Home + Shift+End + Ctrl+C) if no text was highlighted.
+/// Clears clipboard text in X11 and Wayland so we never read stale data.
+pub fn clear_clipboard(display: DisplayServer) {
+    match display {
+        DisplayServer::Wayland => {
+            if command_exists("wl-copy") {
+                let _ = Command::new("wl-copy").arg("--clear").output();
+            }
+        }
+        DisplayServer::X11 => {
+            if command_exists("xclip") {
+                if let Ok(mut child) = Command::new("xclip")
+                    .args(["-selection", "clipboard"])
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        let _ = stdin.write_all(b"");
+                    }
+                    let _ = child.wait();
+                }
+            }
+        }
+        DisplayServer::Unknown => {}
+    }
+}
+
+/// Simulates Ctrl+C with cleared modifiers.
+pub fn send_copy(display: DisplayServer) {
+    match display {
+        DisplayServer::Wayland => {
+            if command_exists("wtype") {
+                let _ = Command::new("wtype")
+                    .args(["-M", "ctrl", "-k", "c", "-m", "ctrl"])
+                    .status();
+            } else if command_exists("ydotool") {
+                let _ = Command::new("ydotool")
+                    .args(["key", "29:1", "46:1", "46:0", "29:0"])
+                    .status();
+            }
+        }
+        DisplayServer::X11 => {
+            if command_exists("xdotool") {
+                let _ = Command::new("xdotool")
+                    .args(["key", "--clearmodifiers", "ctrl+c"])
+                    .status();
+            }
+        }
+        DisplayServer::Unknown => {}
+    }
+}
+
+/// Automatically selects current line (Home + Shift+End + Ctrl+C) with brief key spacing.
 pub fn select_current_line(display: DisplayServer) {
     match display {
         DisplayServer::Wayland => {
-            // Under Wayland: wtype or ydotool
             if command_exists("wtype") {
                 let _ = Command::new("wtype")
                     .args(["-k", "Home", "-M", "shift", "-k", "End", "-m", "shift", "-M", "ctrl", "-k", "c", "-m", "ctrl"])
                     .status();
             } else if command_exists("ydotool") {
-                // Home (102), Shift (42), End (107), Ctrl (29), C (46)
                 let _ = Command::new("ydotool")
                     .args(["key", "102:1", "102:0", "42:1", "107:1", "107:0", "42:0", "29:1", "46:1", "46:0", "29:0"])
                     .status();
@@ -212,9 +263,11 @@ pub fn select_current_line(display: DisplayServer) {
         }
         DisplayServer::X11 => {
             if command_exists("xdotool") {
-                let _ = Command::new("xdotool")
-                    .args(["key", "--clearmodifiers", "Home", "shift+End", "ctrl+c"])
-                    .status();
+                let _ = Command::new("xdotool").args(["key", "--clearmodifiers", "Home"]).status();
+                thread::sleep(Duration::from_millis(20));
+                let _ = Command::new("xdotool").args(["key", "--clearmodifiers", "shift+End"]).status();
+                thread::sleep(Duration::from_millis(20));
+                let _ = Command::new("xdotool").args(["key", "--clearmodifiers", "ctrl+c"]).status();
             }
         }
         DisplayServer::Unknown => {}
@@ -223,7 +276,7 @@ pub fn select_current_line(display: DisplayServer) {
 
 /// Simulates pasting from clipboard (Ctrl+V).
 pub fn send_paste(display: DisplayServer) {
-    thread::sleep(Duration::from_millis(30));
+    thread::sleep(Duration::from_millis(25));
     match display {
         DisplayServer::Wayland => {
             if command_exists("wtype") {
@@ -245,11 +298,37 @@ pub fn send_paste(display: DisplayServer) {
     }
 }
 
-/// Switches keyboard layout dynamically based on desktop environment.
-pub fn switch_keyboard_layout(display: DisplayServer) {
+/// Switches keyboard layout dynamically based on desktop environment and conversion direction.
+pub fn switch_keyboard_layout(display: DisplayServer, direction: converter::ConversionDirection) {
     let de = detect_desktop_environment().to_lowercase();
 
-    // 1. GNOME (Fedora / Ubuntu)
+    // 1. Direct X11 setxkbmap (Works across all X11 desktops: Cinnamon, MATE, XFCE, i3)
+    if display == DisplayServer::X11 && command_exists("setxkbmap") {
+        let lang = match direction {
+            converter::ConversionDirection::EnglishToHebrew => "il",
+            converter::ConversionDirection::HebrewToEnglish => "us",
+        };
+        let _ = Command::new("setxkbmap").arg(lang).output();
+    }
+
+    // 2. GNOME / Cinnamon / MATE via gsettings org.gnome.desktop.input-sources current
+    if command_exists("gsettings") {
+        let _ = (|| -> Option<()> {
+            let out = Command::new("gsettings")
+                .args(["get", "org.gnome.desktop.input-sources", "current"])
+                .output().ok()?;
+            if !out.status.success() { return None; }
+            let current_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let curr_idx: u32 = current_str.split_whitespace().last()?.parse().ok()?;
+            let next_idx = if curr_idx == 0 { 1 } else { 0 };
+            let _ = Command::new("gsettings")
+                .args(["set", "org.gnome.desktop.input-sources", "current", &next_idx.to_string()])
+                .output();
+            Some(())
+        })();
+    }
+
+    // 3. GNOME Eval fallback (Fedora / Ubuntu GNOME Shell)
     if de.contains("gnome") {
         let gnome_script = "imports.ui.status.keyboard.getInputSourceManager()._switchInputSource();";
         let _ = Command::new("gdbus")
@@ -262,30 +341,13 @@ pub fn switch_keyboard_layout(display: DisplayServer) {
                 gnome_script,
             ])
             .output();
-        return;
     }
 
-    // 2. Cinnamon (Linux Mint)
-    if de.contains("cinnamon") || de.contains("x-cinnamon") {
-        // Toggle input source or simulate layout shortcut
-        let _ = Command::new("cinnamon-dbus-command").args(["switch-layout"]).output();
-        if display == DisplayServer::X11 && command_exists("xdotool") {
-            let _ = Command::new("xdotool").args(["key", "alt+shift"]).output();
-        }
-        return;
-    }
-
-    // 3. KDE Plasma (Arch Linux, Fedora KDE)
+    // 4. KDE Plasma fallback
     if de.contains("kde") || de.contains("plasma") {
         let _ = Command::new("qdbus")
             .args(["org.kde.keyboard", "/Layouts", "switchToNextLayout"])
             .output();
-        return;
-    }
-
-    // 4. Generic X11 fallback (setxkbmap toggle or alt+shift)
-    if display == DisplayServer::X11 && command_exists("xdotool") {
-        let _ = Command::new("xdotool").args(["key", "alt+shift"]).output();
     }
 }
 
@@ -294,17 +356,33 @@ pub fn perform_conversion(switch_layout_always: bool) {
     let display = detect_display_server();
     let config = AppConfig::load();
 
-    // 1. Try reading PRIMARY selection (text already selected/highlighted by user)
-    let mut selected_text = get_primary_selection(display);
+    // 1. Clear clipboard first so we never read stale text
+    clear_clipboard(display);
 
-    // 2. If no text was highlighted, and auto_select_line is enabled, select line & copy
+    // 2. Send Ctrl+C to copy whatever text is currently highlighted in the focused application (Chrome, Telegram, etc.)
+    send_copy(display);
+    thread::sleep(Duration::from_millis(45));
+
+    let mut selected_text = get_clipboard_text(display);
+
+    // 3. If nothing was highlighted and auto_select_line is enabled, select line & copy
     if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) && config.auto_select_line {
+        clear_clipboard(display);
         select_current_line(display);
-        thread::sleep(Duration::from_millis(65));
+        thread::sleep(Duration::from_millis(50));
         selected_text = get_clipboard_text(display);
         if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
             thread::sleep(Duration::from_millis(40));
             selected_text = get_clipboard_text(display);
+        }
+    }
+
+    // 4. Fallback to PRIMARY selection if clipboard is still empty
+    if selected_text.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+        if let Some(pri) = get_primary_selection(display) {
+            if !pri.trim().is_empty() {
+                selected_text = Some(pri);
+            }
         }
     }
 
@@ -313,21 +391,22 @@ pub fn perform_conversion(switch_layout_always: bool) {
         _ => return,
     };
 
-    // 3. Convert text using converter engine
-    let (converted, _) = converter::convert_text(&raw_text);
+    // 5. Convert text using converter engine
+    let (converted, direction) = converter::convert_text(&raw_text);
     if converted == raw_text {
         return;
     }
 
-    // 4. Save to clipboard & paste
+    // 6. Save converted text to clipboard & paste
     if set_clipboard_text(&converted, display) {
+        thread::sleep(Duration::from_millis(20));
         send_paste(display);
     }
 
-    // 5. Switch layout if secondary hotkey or auto_switch_layout enabled
+    // 7. Switch layout if primary hotkey (auto_switch_layout) or secondary forced
     if switch_layout_always || config.auto_switch_layout {
         thread::sleep(Duration::from_millis(35));
-        switch_keyboard_layout(display);
+        switch_keyboard_layout(display, direction);
     }
 }
 
@@ -590,69 +669,62 @@ pub fn auto_configure_desktop_shortcuts(exe_path: &str) {
             .args(["set", "org.cinnamon.desktop.interface", "menubar-accel", ""])
             .status();
 
-        let mut list = vec!["'custom0'".to_string(), "'custom1'".to_string(), "'langswitch0'".to_string(), "'langswitch1'".to_string()];
-        if let Ok(output) = Command::new("gsettings")
-            .args(["get", "org.cinnamon.desktop.keybindings", "custom-list"])
-            .output()
-        {
-            if output.status.success() {
-                let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let cleaned = current.trim_start_matches("@as").trim();
-                if cleaned.starts_with('[') && cleaned.ends_with(']') {
-                    let inner = &cleaned[1..cleaned.len() - 1];
-                    for item in inner.split(',') {
-                        let trimmed = item.trim();
-                        if !trimmed.is_empty()
-                            && trimmed != "'custom0'"
-                            && trimmed != "\"custom0\""
-                            && trimmed != "'custom1'"
-                            && trimmed != "\"custom1\""
-                            && trimmed != "'langswitch0'"
-                            && trimmed != "\"langswitch0\""
-                            && trimmed != "'langswitch1'"
-                            && trimmed != "\"langswitch1\""
-                        {
-                            list.push(trimmed.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        let list_str = format!("[{}]", list.join(", "));
-        let _ = Command::new("gsettings")
-            .args(["set", "org.cinnamon.desktop.keybindings", "custom-list", &list_str])
-            .status();
+        let py_script = format!(
+            r#"import subprocess, ast
+target_bin = "{}"
+try:
+    raw = subprocess.check_output(["gsettings", "get", "org.cinnamon.desktop.keybindings", "custom-list"], stderr=subprocess.DEVNULL).decode().strip()
+    if raw.startswith("@as"): raw = raw[3:].strip()
+    lst = ast.literal_eval(raw) if raw and raw != "[]" else []
+    slot1, slot2 = None, None
+    for s in lst:
+        p = f"org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{{s}}/"
+        try:
+            cmd = subprocess.check_output(["gsettings", "get", p, "command"], stderr=subprocess.DEVNULL).decode()
+            if "langswitch --convert-and-switch" in cmd: slot2 = s
+            elif "langswitch --convert" in cmd: slot1 = s
+        except Exception: pass
+    if not slot1:
+        idx = 0
+        while f"custom{{idx}}" in lst: idx += 1
+        slot1 = f"custom{{idx}}"
+        lst.append(slot1)
+    if not slot2:
+        idx = 0
+        while f"custom{{idx}}" in lst: idx += 1
+        slot2 = f"custom{{idx}}"
+        lst.append(slot2)
+    subprocess.run(["gsettings", "set", "org.cinnamon.desktop.keybindings", "custom-list", str(lst)], stderr=subprocess.DEVNULL)
+    p1 = f"org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{{slot1}}/"
+    subprocess.run(["gsettings", "set", p1, "name", "LangSwitch Convert"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p1, "command", f"{{target_bin}} --convert"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p1, "binding", "['F10']"], stderr=subprocess.DEVNULL)
+    p2 = f"org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{{slot2}}/"
+    subprocess.run(["gsettings", "set", p2, "name", "LangSwitch Convert & Switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p2, "command", f"{{target_bin}} --convert-and-switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", p2, "binding", "['<Control>F10']"], stderr=subprocess.DEVNULL)
+except Exception: pass
 
-        let cmd1 = format!("\"{}\" --convert", exe_path);
-        let cmd2 = format!("\"{}\" --convert-and-switch", exe_path);
-
-        // Bind custom0 and langswitch0 to F10
-        for slot in ["custom0", "langswitch0"] {
-            let path = format!("org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{}/", slot);
-            let _ = Command::new("gsettings").args(["set", &path, "name", "LangSwitch Convert"]).status();
-            let _ = Command::new("gsettings").args(["set", &path, "command", &cmd1]).status();
-            let _ = Command::new("gsettings").args(["set", &path, "binding", "['F10']"]).status();
-        }
-
-        // Bind custom1 and langswitch1 to Ctrl+F10
-        for slot in ["custom1", "langswitch1"] {
-            let path = format!("org.cinnamon.desktop.keybindings.custom-keybinding:/org/cinnamon/desktop/keybindings/custom-keybindings/{}/", slot);
-            let _ = Command::new("gsettings").args(["set", &path, "name", "LangSwitch Convert & Switch"]).status();
-            let _ = Command::new("gsettings").args(["set", &path, "command", &cmd2]).status();
-            let _ = Command::new("gsettings").args(["set", &path, "binding", "['<Control>F10']"]).status();
-        }
-
-        // Also register under GNOME media-keys (used by older Cinnamon and MATE)
-        let p1 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-convert/";
-        let p2 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-switch/";
-        let gnome_list = format!("['{}', '{}']", p1, p2);
-        let _ = Command::new("gsettings").args(["set", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings", &gnome_list]).status();
-        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "name", "LangSwitch Convert"]).status();
-        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "command", &cmd1]).status();
-        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p1), "binding", "F10"]).status();
-        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "name", "LangSwitch Convert & Switch"]).status();
-        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "command", &cmd2]).status();
-        let _ = Command::new("gsettings").args(["set", &format!("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{}", p2), "binding", "<Control>F10"]).status();
+try:
+    p1 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-convert/"
+    p2 = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/langswitch-switch/"
+    raw = subprocess.check_output(["gsettings", "get", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings"], stderr=subprocess.DEVNULL).decode().strip()
+    if raw.startswith("@as"): raw = raw[3:].strip()
+    lst = ast.literal_eval(raw) if raw and raw != "[]" else []
+    if p1 not in lst: lst.append(p1)
+    if p2 not in lst: lst.append(p2)
+    subprocess.run(["gsettings", "set", "org.gnome.settings-daemon.plugins.media-keys", "custom-keybindings", str(lst)], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{{p1}}", "name", "LangSwitch Convert"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{{p1}}", "command", f"{{target_bin}} --convert"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{{p1}}", "binding", "F10"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{{p2}}", "name", "LangSwitch Convert & Switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{{p2}}", "command", f"{{target_bin}} --convert-and-switch"], stderr=subprocess.DEVNULL)
+    subprocess.run(["gsettings", "set", f"org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:{{p2}}", "binding", "<Control>F10"], stderr=subprocess.DEVNULL)
+except Exception: pass
+"#,
+            exe_path
+        );
+        let _ = Command::new("python3").args(["-c", &py_script]).status();
 
         println!("✅ קיצורי הדרך F10 ו-Ctrl+F10 הוגדרו בהצלחה ב-Linux Mint Cinnamon!");
         return;

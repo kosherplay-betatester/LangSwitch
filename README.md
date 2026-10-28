@@ -23,6 +23,18 @@
 
 העתק והדבק את הפקודה הבאה בטרמינל להתקנה אוטומטית מלאה (כולל אייקון והגדרת קיצורי `F10` ו-`Ctrl+F10` במערכת):
 
+**ל-Linux Mint / Ubuntu / Debian (מומלץ ומהיר):**
+
+</div>
+
+```bash
+sudo apt update && sudo apt install -y xclip xdotool && curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+```
+
+<div dir="rtl">
+
+**פקודה אוניברסלית (Fedora, Arch Linux, וכל שאר ההפצות):**
+
 </div>
 
 ```bash
@@ -95,6 +107,13 @@ LangSwitch works out-of-the-box on all major Linux distributions:
 * **Ubuntu / Debian** (GNOME Wayland & X11)
 
 #### 🚀 Automated Installation:
+
+**Linux Mint / Ubuntu / Debian (Recommended & Fast):**
+```bash
+sudo apt update && sudo apt install -y xclip xdotool && curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+```
+
+**Universal (Fedora, Arch Linux, openSUSE, etc.):**
 ```bash
 curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
 ```
@@ -168,9 +187,19 @@ LangSwitch פועלת באופן חלק בכל הפצות הלינוקס הפו�
 בניגוד ל-Windows שבה קיצורי הדרך אחידים וקבועים בכל המחשבים, בלינוקס לכל הפצה ולכל סביבת שולחן עבודה (GNOME, Cinnamon, KDE, Hyprland) יש קיצורי מערכת שונים לחלוטין הניתנים לשינוי מלא על ידי המשתמש.  
 מכיוון שסביבות הלינוקס מנהלות את הקיצורים באופן עצמאי, **מערכת ההפעלה עצמה מזהירה ומתריעה בזמן אמת** אם נבחר מקש קיצור שכבר תפוס על ידי יישום אחר.
 
-#### 🚀 התקנה אוטומטית וידידותית בפקודה אחת:
+#### 🚀 התקנה אוטומטית וידידותית:
 הרץ פקודה זו בטרמינל כדי להתקין את LangSwitch, להטמיע את האייקון בתפריט ולהגדיר אוטומטית את קיצורי הדרך `F10` ו-`Ctrl+F10` ב-GNOME וב-Cinnamon:
 
+**ל-Linux Mint / Ubuntu / Debian (מומלץ ומהיר):**
+<div dir="ltr">
+
+```bash
+sudo apt update && sudo apt install -y xclip xdotool && curl -sSL https://raw.githubusercontent.com/kosherplay-betatester/LangSwitch/main/install.sh | bash
+```
+
+</div>
+
+**פקודה כללית אוניברסלית (Fedora, Arch, וכל שאר ההפצות):**
 <div dir="ltr">
 
 ```bash

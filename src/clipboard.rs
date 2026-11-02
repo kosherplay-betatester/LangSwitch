@@ -1,8 +1,9 @@
 use std::ptr;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber, OpenClipboard,
+    SetClipboardData,
 };
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -17,31 +18,63 @@ pub const WM_INPUTLANGCHANGEREQUEST: u32 = 0x0050;
 
 const CF_UNICODETEXT: u32 = 13;
 
+pub fn get_clipboard_seq() -> u32 {
+    unsafe { GetClipboardSequenceNumber() }
+}
+
 pub fn clear_clipboard() {
     unsafe {
-        for _ in 0..5 {
+        for _ in 0..15 {
             if OpenClipboard(ptr::null_mut()) != 0 {
                 EmptyClipboard();
                 CloseClipboard();
                 break;
             }
-            thread::sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(3));
         }
     }
 }
 
+/// Waits until the Windows clipboard sequence number changes (meaning the target app finished
+/// copying on Ctrl+C) WITHOUT locking OpenClipboard during polling, then reads the copied text.
+pub fn wait_for_clipboard_text(seq_before: u32, max_wait_ms: u64) -> Option<String> {
+    let start = Instant::now();
+    let timeout = Duration::from_millis(max_wait_ms);
 
+    while start.elapsed() < timeout {
+        if get_clipboard_seq() != seq_before {
+            // Give the target app a brief moment to finish SetClipboardData & CloseClipboard
+            thread::sleep(Duration::from_millis(2));
+            if let Some(text) = get_clipboard_text() {
+                if !text.is_empty() {
+                    return Some(text);
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(3));
+    }
+
+    // Final check in case sequence number updated right at timeout boundary
+    if get_clipboard_seq() != seq_before {
+        if let Some(text) = get_clipboard_text() {
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
 
 pub fn get_clipboard_text() -> Option<String> {
     unsafe {
         // Retry opening clipboard in case another process briefly locked it
         let mut opened = false;
-        for _ in 0..5 {
+        for _ in 0..15 {
             if OpenClipboard(ptr::null_mut()) != 0 {
                 opened = true;
                 break;
             }
-            thread::sleep(Duration::from_millis(5));
+            thread::sleep(Duration::from_millis(4));
         }
         if !opened {
             return None;
@@ -76,12 +109,12 @@ pub fn get_clipboard_text() -> Option<String> {
 pub fn set_clipboard_text(text: &str) -> bool {
     unsafe {
         let mut opened = false;
-        for _ in 0..5 {
+        for _ in 0..15 {
             if OpenClipboard(ptr::null_mut()) != 0 {
                 opened = true;
                 break;
             }
-            thread::sleep(Duration::from_millis(5));
+            thread::sleep(Duration::from_millis(4));
         }
         if !opened {
             return false;
@@ -149,24 +182,24 @@ fn send_inputs(inputs: &[INPUT]) {
 /// Releases physical modifiers (Shift, Ctrl, Alt, Win) if currently held by user
 pub fn release_physical_modifiers() {
     unsafe {
-        let modifiers = [
-            VK_SHIFT,
-            VK_LSHIFT,
-            VK_RSHIFT,
-            VK_CONTROL,
-            VK_LCONTROL,
-            VK_RCONTROL,
-            VK_MENU,
-            VK_LMENU,
-            VK_RMENU,
-            VK_LWIN,
-            VK_RWIN,
+        let modifiers: [(u16, bool); 11] = [
+            (VK_SHIFT, false),
+            (VK_LSHIFT, false),
+            (VK_RSHIFT, true),
+            (VK_CONTROL, false),
+            (VK_LCONTROL, false),
+            (VK_RCONTROL, true),
+            (VK_MENU, false),
+            (VK_LMENU, false),
+            (VK_RMENU, true),
+            (VK_LWIN, true),
+            (VK_RWIN, true),
         ];
 
         let mut inputs = Vec::new();
-        for &vk in &modifiers {
+        for &(vk, extended) in &modifiers {
             if (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0 {
-                inputs.push(make_key_input(vk, true, false));
+                inputs.push(make_key_input(vk, true, extended));
             }
         }
 
@@ -176,7 +209,7 @@ pub fn release_physical_modifiers() {
                 inputs.as_ptr(),
                 std::mem::size_of::<INPUT>() as i32,
             );
-            thread::sleep(Duration::from_millis(3));
+            thread::sleep(Duration::from_millis(6));
         }
     }
 }
@@ -205,42 +238,35 @@ pub fn send_ctrl_v() {
     send_inputs(&inputs);
 }
 
-/// Select the entire current line by sending Home then Shift + End
-#[allow(dead_code)]
+/// Select the entire current line by sending Home then Shift + End with brief spacing
 pub fn select_current_line() {
     release_physical_modifiers();
 
-    let inputs = [
+    // 1. Move caret to start of line (Home)
+    let home_inputs = [
         make_key_input(VK_HOME, false, true),
         make_key_input(VK_HOME, true, true),
+    ];
+    send_inputs(&home_inputs);
+    thread::sleep(Duration::from_millis(8));
+
+    // 2. Select to end of line (Shift + End)
+    let select_inputs = [
         make_key_input(VK_SHIFT, false, false),
         make_key_input(VK_END, false, true),
         make_key_input(VK_END, true, true),
         make_key_input(VK_SHIFT, true, false),
     ];
-    send_inputs(&inputs);
+    send_inputs(&select_inputs);
 }
 
-/// Selects the current line and sends Ctrl+C in a single atomic input sequence without delay
+/// Selects the current line and sends Ctrl+C with proper UI frame spacing so the target app
+/// commits the selection before processing Ctrl+C.
 pub fn select_current_line_and_copy() {
-    release_physical_modifiers();
-
-    let inputs = [
-        // Home key
-        make_key_input(VK_HOME, false, true),
-        make_key_input(VK_HOME, true, true),
-        // Shift + End
-        make_key_input(VK_SHIFT, false, false),
-        make_key_input(VK_END, false, true),
-        make_key_input(VK_END, true, true),
-        make_key_input(VK_SHIFT, true, false),
-        // Ctrl + C
-        make_key_input(VK_CONTROL, false, false),
-        make_key_input(VK_C, false, false),
-        make_key_input(VK_C, true, false),
-        make_key_input(VK_CONTROL, true, false),
-    ];
-    send_inputs(&inputs);
+    select_current_line();
+    // Wait briefly so Chromium/Electron/WinUI/RichEdit commit the selection range before Ctrl+C arrives
+    thread::sleep(Duration::from_millis(15));
+    send_ctrl_c();
 }
 
 use std::sync::atomic::{AtomicUsize, Ordering};

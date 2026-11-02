@@ -689,72 +689,95 @@ fn open_settings_window(app: &TrayApp) {
     );
 }
 
+static IS_CONVERTING: AtomicBool = AtomicBool::new(false);
+
+struct ConversionGuard;
+impl Drop for ConversionGuard {
+    fn drop(&mut self) {
+        IS_CONVERTING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Captures already-selected text via Ctrl+C, or if nothing is selected and `auto_select_line`
+/// is enabled, selects the current line (Home -> Shift+End) and copies it with a fallback retry.
+fn capture_selected_or_line_text(auto_select_line: bool) -> Option<String> {
+    // 1. Ensure any physically held modifiers (Shift, Alt, Win, Ctrl) are released
+    clipboard::release_physical_modifiers();
+
+    // 2. Clear clipboard first and record sequence number
+    clipboard::clear_clipboard();
+    let seq_before_copy = clipboard::get_clipboard_seq();
+
+    // 3. Try copying already-selected text
+    clipboard::send_ctrl_c();
+    let mut selected_text = clipboard::wait_for_clipboard_text(seq_before_copy, 35);
+
+    // 4. If nothing was selected and auto_select_line is enabled, select line & copy
+    if selected_text.as_ref().map(|s| s.is_empty()).unwrap_or(true) && auto_select_line {
+        clipboard::clear_clipboard();
+        let seq_before_line = clipboard::get_clipboard_seq();
+
+        clipboard::select_current_line_and_copy();
+        selected_text = clipboard::wait_for_clipboard_text(seq_before_line, 90);
+
+        // Fallback retry: if the editor marked the text (Home + Shift+End) on a slower UI frame
+        // and missed the first Ctrl+C, send Ctrl+C once more on the now-marked selection.
+        if selected_text.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+            let seq_retry = clipboard::get_clipboard_seq();
+            clipboard::send_ctrl_c();
+            selected_text = clipboard::wait_for_clipboard_text(seq_retry, 90);
+        }
+    }
+
+    selected_text.filter(|t| !t.is_empty())
+}
+
 pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_clipboard: bool) {
+    if IS_CONVERTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _guard = ConversionGuard;
+
     let original_clipboard = if restore_clipboard {
         clipboard::get_clipboard_text()
     } else {
         None
     };
 
-    // 1. Ensure any physically held modifiers (Shift, Alt, Win, Ctrl) are released
-    clipboard::release_physical_modifiers();
-
-    // 2. Clear clipboard first so we can detect incoming copied text with zero false-positives
-    clipboard::clear_clipboard();
-
-    // 3. Try copying already-selected text
-    clipboard::send_ctrl_c();
-
-    let mut selected_text = None;
-    // Rapid check: if text was already selected, it arrives in 2-4ms
-    for _ in 0..4 {
-        thread::sleep(Duration::from_millis(2));
-        if let Some(t) = clipboard::get_clipboard_text() {
-            if !t.is_empty() {
-                selected_text = Some(t);
-                break;
+    // 1-5. Capture selected text or current line reliably
+    let text = match capture_selected_or_line_text(auto_select_line) {
+        Some(t) => t,
+        None => {
+            if let Some(orig) = original_clipboard {
+                clipboard::set_clipboard_text(&orig);
             }
+            return;
         }
-    }
-
-    // 4. If nothing was selected and auto_select_line is enabled, select line & copy in a single atomic input sequence!
-    if selected_text.is_none() && auto_select_line {
-        clipboard::clear_clipboard();
-        clipboard::select_current_line_and_copy();
-
-        for _ in 0..5 {
-            thread::sleep(Duration::from_millis(2));
-            if let Some(t) = clipboard::get_clipboard_text() {
-                if !t.is_empty() {
-                    selected_text = Some(t);
-                    break;
-                }
-            }
-        }
-    }
-
-    // 5. Read text to convert
-    let text = match selected_text {
-        Some(t) if !t.is_empty() => t,
-        _ => return,
     };
 
     // 6. Convert text in memory
     let (converted, direction) = converter::convert_text(&text);
     if converted == text {
+        if let Some(orig) = original_clipboard {
+            clipboard::set_clipboard_text(&orig);
+        }
         return;
     }
 
-    // 7. Put converted text into clipboard
-    clipboard::set_clipboard_text(&converted);
-    thread::sleep(Duration::from_millis(2));
+    // 7. Put converted text into clipboard and allow clipboard state to settle
+    if !clipboard::set_clipboard_text(&converted) {
+        thread::sleep(Duration::from_millis(10));
+        clipboard::set_clipboard_text(&converted);
+    }
+    thread::sleep(Duration::from_millis(12));
 
-    // 8. Ensure modifiers are released and paste converted text immediately!
+    // 8. Ensure modifiers are released and paste converted text over the marked selection
     clipboard::release_physical_modifiers();
     clipboard::send_ctrl_v();
 
-    // 9. Switch layout if requested (direct Win32 message, 0ms overhead, no Alt key)
+    // 9. Switch layout if requested after allowing the target app to process the Ctrl+V paste
     if switch_layout {
+        thread::sleep(Duration::from_millis(25));
         let target = match direction {
             converter::ConversionDirection::EnglishToHebrew => clipboard::TargetLanguage::Hebrew,
             converter::ConversionDirection::HebrewToEnglish => clipboard::TargetLanguage::English,
@@ -762,10 +785,10 @@ pub fn perform_conversion(auto_select_line: bool, switch_layout: bool, restore_c
         clipboard::switch_keyboard_layout(target);
     }
 
-    // 10. Restore original clipboard if requested
+    // 10. Restore original clipboard if requested after paste completes
     if let Some(orig) = original_clipboard {
         thread::spawn(move || {
-            thread::sleep(Duration::from_millis(200));
+            thread::sleep(Duration::from_millis(350));
             clipboard::set_clipboard_text(&orig);
         });
     }
@@ -792,59 +815,30 @@ pub fn url_encode(input: &str) -> String {
 
 /// Copies selected text (or current line if auto_select_line is enabled) and opens Google AI Search (&udm=50) in a new browser tab
 pub fn perform_google_ai_search(auto_select_line: bool, restore_clipboard: bool) {
+    if IS_CONVERTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _guard = ConversionGuard;
+
     let original_clipboard = if restore_clipboard {
         clipboard::get_clipboard_text()
     } else {
         None
     };
 
-    // 1. Ensure any physically held modifiers (Shift, Win, Ctrl, Alt) are released
-    clipboard::release_physical_modifiers();
+    let query_text = capture_selected_or_line_text(auto_select_line)
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
 
-    // 2. Clear clipboard first
-    clipboard::clear_clipboard();
-
-    // 3. Try copying already-selected text
-    clipboard::send_ctrl_c();
-
-    let mut query_text = None;
-    for _ in 0..5 {
-        thread::sleep(Duration::from_millis(2));
-        if let Some(t) = clipboard::get_clipboard_text() {
-            let trimmed = t.trim().to_string();
-            if !trimmed.is_empty() {
-                query_text = Some(trimmed);
-                break;
-            }
-        }
-    }
-
-    // 4. If nothing was selected and auto_select_line is enabled, select current line
-    if query_text.is_none() && auto_select_line {
-        clipboard::clear_clipboard();
-        clipboard::select_current_line_and_copy();
-
-        for _ in 0..6 {
-            thread::sleep(Duration::from_millis(2));
-            if let Some(t) = clipboard::get_clipboard_text() {
-                let trimmed = t.trim().to_string();
-                if !trimmed.is_empty() {
-                    query_text = Some(trimmed);
-                    break;
-                }
-            }
-        }
-    }
-
-    // 5. Restore clipboard if requested
+    // Restore clipboard if requested
     if let Some(orig) = original_clipboard {
         thread::spawn(move || {
-            thread::sleep(Duration::from_millis(150));
+            thread::sleep(Duration::from_millis(250));
             clipboard::set_clipboard_text(&orig);
         });
     }
 
-    // 6. If we have a query, open Google AI Search with &udm=50 in the default browser!
+    // If we have a query, open Google AI Search with &udm=50 in the default browser!
     if let Some(query) = query_text {
         let encoded = url_encode(&query);
         let search_url = format!("https://www.google.com/search?q={}&udm=50", encoded);
@@ -891,59 +885,30 @@ pub fn build_translation_query(text: &str) -> String {
 /// Copies selected text (or current line if auto_select_line is enabled) and opens Google Quick Translation
 /// (e.g. "בית באנגלית" or "house בעברית") in a new browser tab
 pub fn perform_google_translation(auto_select_line: bool, restore_clipboard: bool) {
+    if IS_CONVERTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _guard = ConversionGuard;
+
     let original_clipboard = if restore_clipboard {
         clipboard::get_clipboard_text()
     } else {
         None
     };
 
-    // 1. Ensure any physically held modifiers are released
-    clipboard::release_physical_modifiers();
+    let query_text = capture_selected_or_line_text(auto_select_line)
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
 
-    // 2. Clear clipboard first
-    clipboard::clear_clipboard();
-
-    // 3. Try copying already-selected text
-    clipboard::send_ctrl_c();
-
-    let mut query_text = None;
-    for _ in 0..5 {
-        thread::sleep(Duration::from_millis(2));
-        if let Some(t) = clipboard::get_clipboard_text() {
-            let trimmed = t.trim().to_string();
-            if !trimmed.is_empty() {
-                query_text = Some(trimmed);
-                break;
-            }
-        }
-    }
-
-    // 4. If nothing was selected and auto_select_line is enabled, select current line
-    if query_text.is_none() && auto_select_line {
-        clipboard::clear_clipboard();
-        clipboard::select_current_line_and_copy();
-
-        for _ in 0..6 {
-            thread::sleep(Duration::from_millis(2));
-            if let Some(t) = clipboard::get_clipboard_text() {
-                let trimmed = t.trim().to_string();
-                if !trimmed.is_empty() {
-                    query_text = Some(trimmed);
-                    break;
-                }
-            }
-        }
-    }
-
-    // 5. Restore clipboard if requested
+    // Restore clipboard if requested
     if let Some(orig) = original_clipboard {
         thread::spawn(move || {
-            thread::sleep(Duration::from_millis(150));
+            thread::sleep(Duration::from_millis(250));
             clipboard::set_clipboard_text(&orig);
         });
     }
 
-    // 6. If we have a query, open Google Quick Translation in the default browser!
+    // If we have a query, open Google Quick Translation in the default browser!
     if let Some(text) = query_text {
         let query = build_translation_query(&text);
         let encoded = url_encode(&query);

@@ -27,7 +27,8 @@ jobs:
 
       - name: Create release zip
         run: |
-          Compress-Archive -Path target/release/langswitch.exe, README.md -DestinationPath LangSwitch-windows-x64.zip
+          Copy-Item target/release/langswitch.exe langswitch.exe
+          Compress-Archive -Path langswitch.exe, README.md -DestinationPath LangSwitch-windows-x64.zip
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
@@ -35,7 +36,7 @@ jobs:
           name: windows-binary
           path: |
             LangSwitch-windows-x64.zip
-            target/release/langswitch.exe
+            langswitch.exe
 
   build-linux:
     name: Build Linux x64 (X11 & Wayland)

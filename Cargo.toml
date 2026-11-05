@@ -1,13 +1,11 @@
 [package]
 name = "langswitch"
-version = "0.6.5"
+version = "0.7.0"
 edition = "2024"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-
-[target.'cfg(windows)'.dependencies]
 ureq = "3.5.0"
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
@@ -23,6 +21,5 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Registry",
 ] }
 
-[target.'cfg(windows)'.build-dependencies]
+[build-dependencies]
 winres = "0.1.12"
-

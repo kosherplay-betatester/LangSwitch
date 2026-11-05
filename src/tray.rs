@@ -2,6 +2,7 @@ use crate::clipboard;
 use crate::config::AppConfig;
 use crate::converter;
 use crate::settings_gui;
+use crate::ui_theme::{self, DialogResult};
 use crate::updater::{self, UpdateCheckResult, CURRENT_VERSION};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,12 +27,12 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
     DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW,
-    HICON, ICONINFO, IDYES, IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR, MB_ICONINFORMATION, MB_OK,
-    MB_YESNO, MF_DISABLED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MessageBoxW, PostMessageW,
-    PostQuitMessage, RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, SM_CXSMICON,
-    SM_CYSMICON, SW_SHOW, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
-    WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP,
-    WM_USER, WNDCLASSEXW, WS_OVERLAPPED, LoadIconW, LoadImageW,
+    HICON, ICONINFO, IMAGE_ICON, LR_DEFAULTCOLOR, MF_DISABLED, MF_GRAYED, MF_SEPARATOR,
+    MF_STRING, PostMessageW, PostQuitMessage, RegisterClassExW, SetForegroundWindow,
+    SetWindowLongPtrW, SM_CXSMICON, SM_CYSMICON, SW_SHOW, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON,
+    TrackPopupMenu, TranslateMessage, WM_COMMAND, WM_DESTROY, WM_HOTKEY, WM_LBUTTONDBLCLK,
+    WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSEXW, WS_OVERLAPPED, LoadIconW,
+    LoadImageW,
 };
 
 pub const WM_TRAYICON: u32 = WM_USER + 100;
@@ -437,19 +438,18 @@ unsafe extern "system" fn tray_wnd_proc(
                                         url,
                                         notes,
                                     } => {
-                                        let msg = format!(
-                                            "גרסה חדשה זמינה: {}\n\nשינויים:\n{}\n\nהאם ברצונך לפתוח את דף ההורדה ב-GitHub?",
-                                            version, notes
+                                        let answer = ui_theme::show_modern_dialog(
+                                            "עדכון חדש זמין! 🎉",
+                                            &format!("גרסה {} זמינה כעת להורדה", version),
+                                            &format!(
+                                                "גרסה חדשה ({}) זמינה ב-GitHub!\n\nשינויים:\n{}\n\nהאם ברצונך לפתוח את דף ההורדה ב-GitHub?",
+                                                version, notes
+                                            ),
+                                            "הורד עדכון 🚀",
+                                            Some("מאוחר יותר"),
+                                            true,
                                         );
-                                        let wmsg = to_wide(&msg);
-                                        let wtitle = to_wide("עדכון חדש זמין!");
-                                        let answer = MessageBoxW(
-                                            h,
-                                            wmsg.as_ptr(),
-                                            wtitle.as_ptr(),
-                                            MB_YESNO | MB_ICONINFORMATION,
-                                        );
-                                        if answer == IDYES {
+                                        if answer == DialogResult::Primary {
                                             let wurl = to_wide(&url);
                                             let wopen = to_wide("open");
                                             ShellExecuteW(
@@ -463,40 +463,36 @@ unsafe extern "system" fn tray_wnd_proc(
                                         }
                                     }
                                     UpdateCheckResult::UpToDate => {
-                                        let msg = format!(
-                                            "התוכנה מעודכנת!\nאתה משתמש בגרסה האחרונה (v{}).",
-                                            CURRENT_VERSION
-                                        );
-                                        let wmsg = to_wide(&msg);
-                                        let wtitle = to_wide("בדיקת עדכונים");
-                                        MessageBoxW(
-                                            h,
-                                            wmsg.as_ptr(),
-                                            wtitle.as_ptr(),
-                                            MB_OK | MB_ICONINFORMATION,
+                                        ui_theme::show_modern_dialog(
+                                            "התוכנה מעודכנת! ⚡",
+                                            &format!("גרסה נוכחית: v{}", CURRENT_VERSION),
+                                            &format!(
+                                                "התוכנה מעודכנת!\nאתה משתמש בגרסה האחרונה של LangSwitch (v{}).",
+                                                CURRENT_VERSION
+                                            ),
+                                            "מעולה!",
+                                            None,
+                                            true,
                                         );
                                     }
                                     UpdateCheckResult::NoReleasesFound => {
-                                        let msg =
-                                            "לא נמצאו שחרורים (Releases) ב-GitHub עבור פרויקט זה עדיין.";
-                                        let wmsg = to_wide(msg);
-                                        let wtitle = to_wide("בדיקת עדכונים");
-                                        MessageBoxW(
-                                            h,
-                                            wmsg.as_ptr(),
-                                            wtitle.as_ptr(),
-                                            MB_OK | MB_ICONINFORMATION,
+                                        ui_theme::show_modern_dialog(
+                                            "בדיקת עדכונים",
+                                            "שחרורים ב-GitHub",
+                                            "לא נמצאו שחרורים (Releases) ב-GitHub עבור פרויקט זה עדיין.",
+                                            "אישור",
+                                            None,
+                                            true,
                                         );
                                     }
                                     UpdateCheckResult::Error(e) => {
-                                        let msg = format!("אירעה שגיאה בבדיקת העדכון:\n{}", e);
-                                        let wmsg = to_wide(&msg);
-                                        let wtitle = to_wide("שגיאת עדכון");
-                                        MessageBoxW(
-                                            h,
-                                            wmsg.as_ptr(),
-                                            wtitle.as_ptr(),
-                                            MB_OK | MB_ICONERROR,
+                                        ui_theme::show_modern_dialog(
+                                            "שגיאת עדכון",
+                                            "לא ניתן לבדוק עדכונים",
+                                            &format!("אירעה שגיאה בבדיקת העדכון:\n{}", e),
+                                            "סגור",
+                                            None,
+                                            true,
                                         );
                                     }
                                 }
@@ -504,20 +500,16 @@ unsafe extern "system" fn tray_wnd_proc(
                         });
                     }
                     ID_TRAY_ABOUT => {
-                        let msg = format!(
-                            "LangSwitch v{}\n\nהמרה מהירה בין עברית לאנגלית\nבהשראת LangOver - יעיל, קל משקל ומהיר כברק!\n\nGitHub:\ngithub.com/kosherplay-betatester/LangSwitch",
-                            CURRENT_VERSION
-                        );
-                        let wmsg = to_wide(&msg);
-                        let wtitle = to_wide("אודות LangSwitch");
-                        unsafe {
-                            MessageBoxW(
-                                hwnd,
-                                wmsg.as_ptr(),
-                                wtitle.as_ptr(),
-                                MB_OK | MB_ICONINFORMATION,
+                        thread::spawn(move || {
+                            ui_theme::show_modern_dialog(
+                                &format!("⚡ אודות LangSwitch v{}", CURRENT_VERSION),
+                                "המרת שפה מהירה בין עברית לאנגלית עבור Windows",
+                                "כלי קל משקל, יעיל ומהיר כברק להמרת טקסט שנכתב בשפה הפוכה, החלפת שפת מקלדת, חיפוש ב-Google AI ותרגום מהיר!\n\nפותח ב-Rust טהור עם 0.00% ניצול מעבד.\nGitHub: github.com/kosherplay-betatester/LangSwitch",
+                                "סגור",
+                                None,
+                                true,
                             );
-                        }
+                        });
                     }
                     ID_TRAY_EXIT => unsafe {
                         Shell_NotifyIconW(NIM_DELETE, &app.nid);
@@ -641,6 +633,8 @@ unsafe fn toggle_pause(app: &mut TrayApp) {
         unsafe {
             UnregisterHotKey(app.hwnd, HOTKEY_PRIMARY_ID);
             UnregisterHotKey(app.hwnd, HOTKEY_SECONDARY_ID);
+            UnregisterHotKey(app.hwnd, HOTKEY_AI_SEARCH_ID);
+            UnregisterHotKey(app.hwnd, HOTKEY_TRANSLATE_ID);
 
             app.nid.hIcon = app.icon_paused;
             let tip = to_wide("LangSwitch (מושהה / Paused)");

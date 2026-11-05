@@ -1,43 +1,37 @@
 use crate::config::AppConfig;
+use crate::ui_theme::{
+    self, to_wide, ButtonStyle, BG_GRAD_BOT_PURPLE, BG_GRAD_TOP_BLUE, TEXT_DARK_SLATE,
+    TEXT_DEEP_PURPLE, TEXT_INDIGO, TEXT_SKY_BLUE,
+};
 use crate::updater::CURRENT_VERSION;
 use std::ptr;
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, RoundRect, SelectObject,
-    SetBkMode, SetTextColor, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DEFAULT_QUALITY,
-    DT_CENTER, DT_SINGLELINE, DT_VCENTER, FW_BOLD, FW_NORMAL, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS,
-    PS_SOLID, TRANSPARENT,
+    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, DeleteDC,
+    DeleteObject, DrawTextW, EndPaint, SelectObject, SetBkMode, SetTextColor, CLIP_DEFAULT_PRECIS,
+    DEFAULT_CHARSET, DEFAULT_PITCH, DEFAULT_QUALITY, DT_LEFT, DT_NOPREFIX, DT_RIGHT,
+    DT_RTLREADING, DT_SINGLELINE, DT_VCENTER, FW_BOLD, FW_MEDIUM, FW_NORMAL, HFONT,
+    OUT_DEFAULT_PRECIS, PAINTSTRUCT, SRCCOPY, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_SELECTED, WC_BUTTONW, WC_STATICW};
+use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_SELECTED, WC_BUTTONW};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetDlgCtrlID, GetMessageW,
-    GetSystemMetrics, GetWindowLongPtrW, LoadImageW, PostQuitMessage, RegisterClassExW, SendMessageW,
-    SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TranslateMessage, BS_GROUPBOX, BS_OWNERDRAW,
-    CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, HMENU, HTCAPTION, ICON_BIG, ICON_SMALL, IMAGE_ICON,
-    LR_DEFAULTCOLOR, SM_CXICON, SM_CXSCREEN, SM_CXSMICON, SM_CYICON, SM_CYSCREEN, SM_CYSMICON,
-    SW_SHOW, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLORDLG, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DRAWITEM, WM_LBUTTONDOWN, WM_NCLBUTTONDOWN, WM_SETFONT, WM_SETICON, WNDCLASSEXW, WS_CAPTION,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW,
+    GetSystemMetrics, GetWindowLongPtrW, LoadImageW, PostQuitMessage, RegisterClassExW,
+    SendMessageW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TranslateMessage,
+    BS_OWNERDRAW, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, HMENU, HTCAPTION, ICON_BIG, ICON_SMALL,
+    IMAGE_ICON, LR_DEFAULTCOLOR, SM_CXICON, SM_CXSCREEN, SM_CXSMICON, SM_CYICON, SM_CYSCREEN,
+    SM_CYSMICON, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DRAWITEM, WM_ERASEBKGND,
+    WM_KEYDOWN, WM_LBUTTONDOWN, WM_NCLBUTTONDOWN, WM_PAINT, WM_SETICON, WNDCLASSEXW, WS_CAPTION,
     WS_CHILD, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 
 const ID_BTN_START: usize = 101;
-const ID_LBL_WELCOME_TITLE: usize = 10;
-const ID_LBL_WELCOME_SUB: usize = 11;
-const ID_GRP_WELCOME: usize = 12;
-
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn rgb(r: u8, g: u8, b: u8) -> u32 {
-    (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
-}
 
 struct WelcomeState {
-    bg_brush: HBRUSH,
     hfont_title: HFONT,
+    hfont_sub: HFONT,
     hfont_body: HFONT,
     hfont_bold: HFONT,
     hfont_btn: HFONT,
@@ -50,9 +44,6 @@ pub fn show_welcome_window(config: &AppConfig) {
         let hinstance = GetModuleHandleW(ptr::null());
         let class_name = to_wide("LangSwitchWelcomeWindow");
 
-        // Creative light blue & purplish periwinkle background (#F4F5FD)
-        let bg_brush = CreateSolidBrush(rgb(244, 245, 253));
-
         let wnd_class = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             style: CS_HREDRAW | CS_VREDRAW,
@@ -62,7 +53,7 @@ pub fn show_welcome_window(config: &AppConfig) {
             hInstance: hinstance,
             hIcon: ptr::null_mut(),
             hCursor: ptr::null_mut(),
-            hbrBackground: bg_brush,
+            hbrBackground: ptr::null_mut(),
             lpszMenuName: ptr::null(),
             lpszClassName: class_name.as_ptr(),
             hIconSm: ptr::null_mut(),
@@ -70,8 +61,8 @@ pub fn show_welcome_window(config: &AppConfig) {
 
         RegisterClassExW(&wnd_class);
 
-        let win_width = 580;
-        let win_height = 590;
+        let win_width = 610;
+        let win_height = 610;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
@@ -87,7 +78,7 @@ pub fn show_welcome_window(config: &AppConfig) {
             0,
             class_name.as_ptr(),
             title.as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             pos_x,
             pos_y,
             win_width,
@@ -128,10 +119,14 @@ pub fn show_welcome_window(config: &AppConfig) {
             SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon_big as LPARAM);
         }
 
-        // Modern fonts
         let font_name = to_wide("Segoe UI");
         let hfont_title = CreateFontW(
-            -22, 0, 0, 0, FW_BOLD as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
+            -21, 0, 0, 0, FW_BOLD as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
+            OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
+            DEFAULT_PITCH as u32, font_name.as_ptr(),
+        );
+        let hfont_sub = CreateFontW(
+            -13, 0, 0, 0, FW_MEDIUM as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
             OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
             DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
@@ -141,19 +136,19 @@ pub fn show_welcome_window(config: &AppConfig) {
             DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
         let hfont_bold = CreateFontW(
-            -13, 0, 0, 0, FW_BOLD as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
+            -14, 0, 0, 0, FW_BOLD as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
             OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
             DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
         let hfont_btn = CreateFontW(
-            -14, 0, 0, 0, FW_BOLD as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
+            -15, 0, 0, 0, FW_BOLD as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
             OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
             DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
 
         let state = Box::new(WelcomeState {
-            bg_brush,
             hfont_title,
+            hfont_sub,
             hfont_body,
             hfont_bold,
             hfont_btn,
@@ -162,7 +157,41 @@ pub fn show_welcome_window(config: &AppConfig) {
 
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
 
-        init_welcome_controls(hwnd, hinstance, hfont_title, hfont_body, hfont_bold, is_en);
+        let mut client_rc = RECT {
+            left: 0,
+            top: 0,
+            right: win_width,
+            bottom: win_height,
+        };
+        GetClientRect(hwnd, &mut client_rc);
+        let cw = client_rc.right - client_rc.left;
+        let ch = client_rc.bottom - client_rc.top;
+
+        let btn_w = 250;
+        let btn_h = 44;
+        let btn_x = (cw - btn_w) / 2;
+        let btn_y = ch - 58;
+
+        let btn_text = if is_en {
+            "Got it, let's start! 🚀"
+        } else {
+            "הבנתי, בוא נתחיל! 🚀"
+        };
+        let wbtn = to_wide(btn_text);
+        CreateWindowExW(
+            0,
+            WC_BUTTONW,
+            wbtn.as_ptr(),
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW as u32 | WS_TABSTOP,
+            btn_x,
+            btn_y,
+            btn_w,
+            btn_h,
+            hwnd,
+            ID_BTN_START as HMENU,
+            hinstance,
+            ptr::null(),
+        );
 
         ShowWindow(hwnd, SW_SHOW);
         SetForegroundWindow(hwnd);
@@ -175,100 +204,6 @@ pub fn show_welcome_window(config: &AppConfig) {
     }
 }
 
-unsafe fn init_welcome_controls(
-    hwnd: HWND,
-    hinstance: windows_sys::Win32::Foundation::HMODULE,
-    hfont_title: HFONT,
-    hfont_body: HFONT,
-    hfont_bold: HFONT,
-    is_en: bool,
-) {
-    let create_ctrl = |class: *const u16, text: &str, style: u32, x, y, w, h, id: usize| -> HWND {
-        let title = to_wide(text);
-        unsafe {
-            CreateWindowExW(
-                0, class, title.as_ptr(), WS_CHILD | WS_VISIBLE | style,
-                x, y, w, h, hwnd, id as HMENU, hinstance, ptr::null(),
-            )
-        }
-    };
-
-    // Header Title
-    let header_text = format!("⚡ LangSwitch v{}", CURRENT_VERSION);
-    let lbl_title = create_ctrl(WC_STATICW, &header_text, 0, 30, 18, 510, 32, ID_LBL_WELCOME_TITLE);
-    unsafe {
-        SendMessageW(lbl_title, WM_SETFONT, hfont_title as WPARAM, 1);
-    }
-
-    // Subtitle
-    let subtitle_text = if is_en {
-        "Ultra-fast, native Hebrew <-> English layout text switcher"
-    } else {
-        "\u{200F}כלי חכם, קל משקל וסופר-מהיר להמרת שפה אוטומטית"
-    };
-    let lbl_sub = create_ctrl(WC_STATICW, subtitle_text, 0, 32, 54, 510, 22, ID_LBL_WELCOME_SUB);
-    unsafe {
-        SendMessageW(lbl_sub, WM_SETFONT, hfont_body as WPARAM, 1);
-    }
-
-    // Card Box
-    let grp = create_ctrl(
-        WC_BUTTONW,
-        if is_en { " What LangSwitch does: " } else { "\u{200F} מה האפליקציה יודעת לעשות? " },
-        BS_GROUPBOX as u32,
-        25, 86, 515, 390, ID_GRP_WELCOME,
-    );
-    unsafe {
-        SendMessageW(grp, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
-    // Features List
-    let items = if is_en {
-        vec![
-            ("⌨️  Primary Hotkey (F10):", "Instantly converts mistyped text AND switches input language layout automatically!"),
-            ("🎯  Auto-Line Selection:", "No need to select text! If unselected, the entire current line is converted instantly."),
-            ("⚡  Secondary Hotkey (Ctrl + F10):", "Converts text ONLY (without changing keyboard input layout)."),
-            ("🔍  Google AI Search (Shift + Win + G):", "Takes any copied/selected text and opens Google AI Mode directly (&udm=50)!"),
-            ("🌐  Quick Translation (Ctrl + Shift + T):", "Translates text between Hebrew and English via Google directly in your browser!"),
-            ("🪟  Silent & Lightweight:", "Runs quietly in your System Tray with 0.00% CPU and minimal memory."),
-        ]
-    } else {
-        vec![
-            ("\u{200F}⌨️  מקש ראשי (F10):", "\u{200F}המרה מיידית של טקסט שנכתב בשפה הפוכה + החלפת שפת המקלדת אוטומטית!"),
-            ("\u{200F}🎯  זיהוי שורה אוטומטי:", "\u{200F}אין צורך לסמן בעכבר! אם לא סומן טקסט, כל השורה שהקלדת תומר מיד."),
-            ("\u{200F}⚡  מקש משני (Ctrl + F10):", "\u{200F}המרת טקסט בלבד (ללא שינוי שפת קלט המקלדת)."),
-            ("\u{200F}🔍  חיפוש ב-Google AI (Shift + Win + G):", "\u{200F}מסמנים כל טקסט ופותחים אותו מיד במצב ה-AI החדש של גוגל (&udm=50)!"),
-            ("\u{200F}🌐  תרגום מהיר (Ctrl + Shift + T):", "\u{200F}תרגום מיידי מעברית לאנגלית ולהיפך בגוגל (בית -> באנגלית, house -> בעברית)!"),
-            ("\u{200F}🪟  שקט וחסכוני במשאבים:", "\u{200F}פועל ברקע באזור מגש המערכת (ליד השעון) עם 0% ניצול מעבד."),
-        ]
-    };
-
-    let mut start_y = 112;
-    for (idx, (lead, desc)) in items.iter().enumerate() {
-        let lbl_lead = create_ctrl(WC_STATICW, lead, 0, 45, start_y, 475, 20, 20 + idx * 2);
-        unsafe {
-            SendMessageW(lbl_lead, WM_SETFONT, hfont_bold as WPARAM, 1);
-        }
-
-        let lbl_desc = create_ctrl(WC_STATICW, desc, 0, 50, start_y + 19, 465, 20, 21 + idx * 2);
-        unsafe {
-            SendMessageW(lbl_desc, WM_SETFONT, hfont_body as WPARAM, 1);
-        }
-
-        start_y += 50;
-    }
-
-    // Owner-drawn start button
-    let btn_text = if is_en { "Got it, let's start! 🚀" } else { "הבנתי, בוא נתחיל! 🚀" };
-    create_ctrl(
-        WC_BUTTONW,
-        btn_text,
-        BS_OWNERDRAW as u32 | WS_TABSTOP,
-        165, 495, 240, 42,
-        ID_BTN_START,
-    );
-}
-
 unsafe extern "system" fn welcome_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -278,105 +213,226 @@ unsafe extern "system" fn welcome_wnd_proc(
     let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WelcomeState };
 
     match msg {
-        // Drag window from anywhere
+        WM_ERASEBKGND => return 1,
         WM_LBUTTONDOWN => unsafe {
             ReleaseCapture();
             SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION as WPARAM, 0);
             return 0;
         },
-        WM_DRAWITEM => {
-            let dis = unsafe { &*(lparam as *const DRAWITEMSTRUCT) };
-            if dis.CtlID as usize == ID_BTN_START {
-                let is_en = if !state_ptr.is_null() {
-                    unsafe { (*state_ptr).is_english }
-                } else {
-                    false
-                };
-                let is_pressed = (dis.itemState & ODS_SELECTED) != 0;
+        WM_PAINT => {
+            let mut ps: PAINTSTRUCT = unsafe { std::mem::zeroed() };
+            let hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
-                let bg = if is_pressed { rgb(79, 70, 229) } else { rgb(99, 102, 241) };
-                let border = if is_pressed { rgb(67, 56, 202) } else { rgb(79, 70, 229) };
+            if !state_ptr.is_null() {
+                let state = unsafe { &*state_ptr };
+                let is_en = state.is_english;
+                let is_rtl = !is_en;
+
+                let mut rc = RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                };
+                unsafe {
+                    GetClientRect(hwnd, &mut rc);
+                }
+                let w = rc.right - rc.left;
+                let h = rc.bottom - rc.top;
 
                 unsafe {
-                    let brush = CreateSolidBrush(bg);
-                    let pen = CreatePen(PS_SOLID as i32, 1, border);
-                    let old_brush = SelectObject(dis.hDC, brush as *mut _);
-                    let old_pen = SelectObject(dis.hDC, pen as *mut _);
+                    let mem_dc = CreateCompatibleDC(hdc);
+                    let mem_bmp = CreateCompatibleBitmap(hdc, w, h);
+                    let old_bmp = SelectObject(mem_dc, mem_bmp as *mut _);
 
-                    RoundRect(
-                        dis.hDC,
-                        dis.rcItem.left,
-                        dis.rcItem.top,
-                        dis.rcItem.right,
-                        dis.rcItem.bottom,
-                        10,
-                        10,
+                    // 1. Light Blue -> Light Purple background gradient
+                    ui_theme::fill_vertical_gradient(
+                        mem_dc,
+                        &rc,
+                        BG_GRAD_TOP_BLUE,
+                        BG_GRAD_BOT_PURPLE,
                     );
 
-                    SelectObject(dis.hDC, old_brush);
-                    SelectObject(dis.hDC, old_pen);
-                    DeleteObject(brush as *mut _);
-                    DeleteObject(pen as *mut _);
+                    // 2. Top Gradient Banner
+                    let header_title = format!("⚡ LangSwitch v{}", CURRENT_VERSION);
+                    let header_sub = if is_en {
+                        "Ultra-fast, native Hebrew <-> English layout switcher for Windows"
+                    } else {
+                        "כלי חכם, קל משקל ומהיר כברק להמרת טקסט והחלפת שפה אוטומטית"
+                    };
+                    ui_theme::draw_header_banner(
+                        mem_dc,
+                        18,
+                        12,
+                        w - 18,
+                        76,
+                        &header_title,
+                        header_sub,
+                        state.hfont_title,
+                        state.hfont_sub,
+                        is_rtl,
+                    );
 
-                    SetBkMode(dis.hDC, TRANSPARENT as i32);
-                    SetTextColor(dis.hDC, rgb(255, 255, 255));
+                    // 3. Feature Cards with alternating Light Blue <-> Light Purple gradient borders
+                    let items: [(&str, &str, u32, bool); 6] = if is_en {
+                        [
+                            (
+                                "⌨️  Primary Hotkey (F10) — Convert + Switch Layout",
+                                "Instantly converts mistyped text AND switches keyboard layout automatically!",
+                                TEXT_SKY_BLUE,
+                                true,
+                            ),
+                            (
+                                "🎯  Smart Auto-Line Selection",
+                                "No need to highlight text first — converts the current line automatically.",
+                                TEXT_DEEP_PURPLE,
+                                false,
+                            ),
+                            (
+                                "⚡  Secondary Hotkey (Ctrl + F10) — Convert Only",
+                                "Converts mistyped text without switching your active keyboard layout.",
+                                TEXT_INDIGO,
+                                true,
+                            ),
+                            (
+                                "🔍  Google AI Mode Search (Shift + Win + G)",
+                                "Opens your selected or current line text directly in Google AI Mode.",
+                                TEXT_SKY_BLUE,
+                                false,
+                            ),
+                            (
+                                "🌐  Quick Google Translation (Ctrl + Shift + T)",
+                                "Translates Hebrew <-> English instantly in your browser with dictionary cards.",
+                                TEXT_DEEP_PURPLE,
+                                true,
+                            ),
+                            (
+                                "🪟  0.00% Idle CPU in Windows System Tray",
+                                "Runs silently near the clock — right-click the tray icon anytime for Settings.",
+                                TEXT_INDIGO,
+                                false,
+                            ),
+                        ]
+                    } else {
+                        [
+                            (
+                                "⌨️  מקש ראשי (F10) — המרה + החלפת שפת מקלדת",
+                                "ממיר מיידית טקסט שהוקלד בשפה הפוכה ומחליף את שפת המקלדת אוטומטית!",
+                                TEXT_SKY_BLUE,
+                                true,
+                            ),
+                            (
+                                "🎯  זיהוי וסימון שורה אוטומטי חכם",
+                                "אין צורך לסמן טקסט עם העכבר — השורה הנוכחית מומרת בלחיצה אחת.",
+                                TEXT_DEEP_PURPLE,
+                                false,
+                            ),
+                            (
+                                "⚡  מקש משני (Ctrl + F10) — המרת טקסט בלבד",
+                                "ממיר את הטקסט שנכתב בטעות ללא שינוי שפת המקלדת הפעילה.",
+                                TEXT_INDIGO,
+                                true,
+                            ),
+                            (
+                                "🔍  חיפוש מהיר ב-Google AI (Shift + Win + G)",
+                                "פותח את הטקסט המסומן או השורה הנוכחית ישירות במצב ה-AI של גוגל!",
+                                TEXT_SKY_BLUE,
+                                false,
+                            ),
+                            (
+                                "🌐  תרגום מהיר בגוגל (Ctrl + Shift + T)",
+                                "תרגום מיידי מעברית לאנגלית ולהיפך עם כרטיסיית מילון והגייה קולית.",
+                                TEXT_DEEP_PURPLE,
+                                true,
+                            ),
+                            (
+                                "🪟  שקט וחסכוני במגש המערכת (System Tray)",
+                                "פועל ברקע ליד השעון עם 0% מעבד — לחץ על האייקון לפתיחת ההגדרות.",
+                                TEXT_INDIGO,
+                                false,
+                            ),
+                        ]
+                    };
 
-                    if !state_ptr.is_null() {
-                        let state = &*state_ptr;
-                        SelectObject(dis.hDC, state.hfont_btn as *mut _);
+                    SetBkMode(mem_dc, TRANSPARENT as i32);
+                    let flags = if is_rtl {
+                        DT_RIGHT | DT_RTLREADING | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX
+                    } else {
+                        DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX
+                    };
+
+                    let mut card_y = 88;
+                    let card_h = 62;
+                    for (lead, desc, title_color, blue_to_purple) in items {
+                        ui_theme::draw_gradient_card(
+                            mem_dc,
+                            18,
+                            card_y,
+                            w - 18,
+                            card_y + card_h,
+                            12,
+                            blue_to_purple,
+                        );
+
+                        SelectObject(mem_dc, state.hfont_bold as *mut _);
+                        SetTextColor(mem_dc, title_color);
+                        let mut rc_lead = RECT {
+                            left: 34,
+                            top: card_y + 9,
+                            right: w - 34,
+                            bottom: card_y + 31,
+                        };
+                        let wlead = to_wide(lead);
+                        DrawTextW(mem_dc, wlead.as_ptr(), -1, &mut rc_lead, flags);
+
+                        SelectObject(mem_dc, state.hfont_body as *mut _);
+                        SetTextColor(mem_dc, TEXT_DARK_SLATE);
+                        let mut rc_desc = RECT {
+                            left: 34,
+                            top: card_y + 32,
+                            right: w - 34,
+                            bottom: card_y + card_h - 6,
+                        };
+                        let wdesc = to_wide(desc);
+                        DrawTextW(mem_dc, wdesc.as_ptr(), -1, &mut rc_desc, flags);
+
+                        card_y += card_h + 7;
                     }
 
-                    let mut rc = dis.rcItem;
-                    let text = if is_en { "Got it, let's start! 🚀" } else { "הבנתי, בוא נתחיל! 🚀" };
-                    let wtext = to_wide(text);
-                    DrawTextW(
+                    BitBlt(hdc, 0, 0, w, h, mem_dc, 0, 0, SRCCOPY);
+                    SelectObject(mem_dc, old_bmp);
+                    DeleteObject(mem_bmp as *mut _);
+                    DeleteDC(mem_dc);
+                }
+            }
+
+            unsafe {
+                EndPaint(hwnd, &ps);
+            }
+            return 0;
+        }
+        WM_DRAWITEM => {
+            let dis = unsafe { &*(lparam as *const DRAWITEMSTRUCT) };
+            if dis.CtlID as usize == ID_BTN_START && !state_ptr.is_null() {
+                let state = unsafe { &*state_ptr };
+                let is_en = state.is_english;
+                let is_pressed = (dis.itemState & ODS_SELECTED) != 0;
+                let text = if is_en {
+                    "Got it, let's start! 🚀"
+                } else {
+                    "הבנתי, בוא נתחיל! 🚀"
+                };
+                unsafe {
+                    ui_theme::draw_gradient_button(
                         dis.hDC,
-                        wtext.as_ptr(),
-                        -1,
-                        &mut rc,
-                        DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+                        &dis.rcItem,
+                        text,
+                        state.hfont_btn,
+                        ButtonStyle::PrimaryGradient,
+                        is_pressed,
                     );
                 }
                 return 1;
-            }
-        }
-        WM_CTLCOLORDLG => {
-            if !state_ptr.is_null() {
-                let state = unsafe { &*state_ptr };
-                return state.bg_brush as LRESULT;
-            }
-        }
-        WM_CTLCOLORSTATIC => {
-            let hdc = wparam as HDC;
-            let ctrl_id = unsafe { GetDlgCtrlID(lparam as HWND) } as usize;
-            unsafe {
-                SetBkMode(hdc, TRANSPARENT as i32);
-                let text_color = match ctrl_id {
-                    ID_LBL_WELCOME_TITLE => rgb(109, 40, 217), // Royal Violet
-                    ID_LBL_WELCOME_SUB => rgb(67, 56, 202),    // Slate Indigo
-                    ID_GRP_WELCOME => rgb(109, 40, 217),       // Royal Violet
-                    20 => rgb(2, 132, 199),                   // Hotkey Primary: Sky Blue
-                    22 => rgb(79, 70, 229),                   // Auto select line: Indigo
-                    24 => rgb(79, 70, 229),                   // Hotkey Secondary: Indigo
-                    26 => rgb(2, 132, 199),                   // AI search: Sky Blue
-                    28 => rgb(124, 58, 237),                  // Translation: Violet
-                    _ => rgb(30, 41, 59),                     // Slate 800
-                };
-                SetTextColor(hdc, text_color);
-            }
-            if !state_ptr.is_null() {
-                let state = unsafe { &*state_ptr };
-                return state.bg_brush as LRESULT;
-            }
-        }
-        WM_CTLCOLORBTN => {
-            let hdc = wparam as HDC;
-            unsafe {
-                SetBkMode(hdc, TRANSPARENT as i32);
-            }
-            if !state_ptr.is_null() {
-                let state = unsafe { &*state_ptr };
-                return state.bg_brush as LRESULT;
             }
         }
         WM_COMMAND => {
@@ -388,18 +444,25 @@ unsafe extern "system" fn welcome_wnd_proc(
                 return 0;
             }
         }
-        WM_CLOSE => {
-            unsafe {
-                DestroyWindow(hwnd);
+        WM_KEYDOWN => {
+            let vk = wparam as u32;
+            if vk == 0x0D || vk == 0x1B {
+                unsafe {
+                    DestroyWindow(hwnd);
+                }
+                return 0;
             }
-            return 0;
         }
+        WM_CLOSE => unsafe {
+            DestroyWindow(hwnd);
+            return 0;
+        },
         WM_DESTROY => {
             if !state_ptr.is_null() {
                 let state = unsafe { Box::from_raw(state_ptr) };
                 unsafe {
-                    DeleteObject(state.bg_brush as *mut _);
                     DeleteObject(state.hfont_title as *mut _);
+                    DeleteObject(state.hfont_sub as *mut _);
                     DeleteObject(state.hfont_body as *mut _);
                     DeleteObject(state.hfont_bold as *mut _);
                     DeleteObject(state.hfont_btn as *mut _);

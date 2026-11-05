@@ -1,18 +1,17 @@
 use crate::config::set_startup_enabled;
+use crate::ui_theme::{self, to_wide, DialogResult};
 use crate::updater::CURRENT_VERSION;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ptr;
 use windows_sys::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_DWORD, REG_SZ, RegCloseKey, RegCreateKeyW,
-    RegDeleteKeyW, RegSetValueExW,
+    HKEY_CURRENT_USER, REG_DWORD, REG_SZ, RegCloseKey, RegCreateKeyW, RegDeleteKeyW,
+    RegSetValueExW,
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetWindowThreadProcessId, MessageBoxW, PostMessageW, IDOK, IDYES,
-    MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MB_YESNO, SW_SHOW,
-    WM_CLOSE,
+    FindWindowW, GetWindowThreadProcessId, PostMessageW, SW_SHOW, WM_CLOSE,
 };
 
 const UNINSTALL_KEY: &[u16] = &[
@@ -27,12 +26,7 @@ const UNINSTALL_KEY: &[u16] = &[
     'S' as u16, 'w' as u16, 'i' as u16, 't' as u16, 'c' as u16, 'h' as u16, 0,
 ];
 
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
 pub fn get_default_install_dir() -> PathBuf {
-    // Check if ProgramFiles is available, otherwise LocalAppData\Programs
     if let Ok(pf) = std::env::var("ProgramFiles") {
         let mut p = PathBuf::from(pf);
         p.push("LangSwitch");
@@ -70,7 +64,6 @@ pub fn is_running_from_install_dir() -> bool {
                 return true;
             }
         }
-        // Also check LocalAppData\Programs\LangSwitch in case installed per-user
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
             let mut alt = PathBuf::from(local);
             alt.push("Programs");
@@ -85,7 +78,7 @@ pub fn is_running_from_install_dir() -> bool {
     false
 }
 
-/// Prompts the user on first run to install the application.
+/// Prompts the user on first run with a modern Light Blue <-> Light Purple gradient Installer Dialog.
 pub fn check_and_prompt_first_run() {
     if is_running_from_install_dir() {
         return;
@@ -106,28 +99,18 @@ pub fn check_and_prompt_first_run() {
         return;
     }
 
-    // Ask user if they wish to install to Program Files
-    let msg = to_wide(
-        "ברוכים הבאים ל-LangSwitch! ⚡\n\n\
-        האם ברצונך להתקין את LangSwitch במחשב?\n\n\
-        ההתקנה תעתיק את התוכנה לתיקיית התוכניות, תיצור קיצור דרך בתפריט התחל,\n\
-        ותרשום את האפליקציה בלוח הבקרה ורשימת היישומים להסרה של Windows.",
+    let answer = ui_theme::show_modern_dialog(
+        &format!("⚡ התקנת LangSwitch v{}", CURRENT_VERSION),
+        "המרת טקסט והחלפת שפה מהירה עבור Windows 10 / 11",
+        "ברוכים הבאים ל-LangSwitch!\n\nהאם ברצונך להתקין את התוכנה במחשב?\n• העתקה לתיקיית התוכניות ויצירת קיצור דרך בתפריט ההתחלה\n• הפעלה אוטומטית שקטה ברקע עם עליית Windows\n• רישום מלא ברשימת האפליקציות המותקנות של Windows",
+        "⚡ התקן עכשיו (מומלץ)",
+        Some("הפעל ללא התקנה"),
+        true,
     );
-    let title = to_wide("התקנת LangSwitch");
 
-    let answer = unsafe {
-        MessageBoxW(
-            ptr::null_mut(),
-            msg.as_ptr(),
-            title.as_ptr(),
-            MB_YESNO | MB_ICONQUESTION,
-        )
-    };
-
-    if answer == IDYES {
+    if answer == DialogResult::Primary {
         install_app();
     } else {
-        // Record that user was prompted so we don't nag on portable usage
         let cfg = crate::config::AppConfig::load();
         cfg.save();
         mark_first_run_prompted(&config_path);
@@ -137,10 +120,7 @@ pub fn check_and_prompt_first_run() {
 fn mark_first_run_prompted(path: &Path) {
     if let Ok(content) = fs::read_to_string(path) {
         if !content.contains("first_run_prompted") {
-            let updated = content.replace(
-                "}",
-                ",\n  \"first_run_prompted\": true\n}",
-            );
+            let updated = content.replace("}", ",\n  \"first_run_prompted\": true\n}");
             let _ = fs::write(path, updated);
         }
     }
@@ -154,7 +134,7 @@ pub fn is_running_as_admin() -> bool {
     unsafe { IsUserAnAdmin() != 0 }
 }
 
-/// Checks if another instance of LangSwitch is running, prompts the user to close it before install/update.
+/// Checks if another instance of LangSwitch is running, prompts the user with a modern dialog to close it.
 pub fn check_and_close_running_instance() -> bool {
     let tray_class = to_wide("LangSwitchTrayClass");
     let hwnd = unsafe { FindWindowW(tray_class.as_ptr(), ptr::null()) };
@@ -169,23 +149,16 @@ pub fn check_and_close_running_instance() -> bool {
     }
 
     if !hwnd.is_null() && target_pid != my_pid {
-        let msg = to_wide(
-            "נמצא כי LangSwitch פועלת כעת ברקע.\n\n\
-            יש לסגור את היישום לפני ביצוע ההתקנה או העדכון.\n\n\
-            האם לסגור את היישום ולהמשיך בהתקנה עכשיו?",
+        let ans = ui_theme::show_modern_dialog(
+            "LangSwitch פועלת ברקע",
+            "נדרשת סגירה של המופע הפעיל לפני עדכון או התקנה",
+            "נמצא כי LangSwitch כבר פועלת כעת במגש המערכת.\n\nהאם לסגור את הגרסה הפעילה ולהמשיך בהתקנת הגרסה החדשה כעת?",
+            "סגור והמשך בהתקנה",
+            Some("ביטול"),
+            true,
         );
-        let title = to_wide("LangSwitch פעילה ברקע");
-        let ans = unsafe {
-            MessageBoxW(
-                ptr::null_mut(),
-                msg.as_ptr(),
-                title.as_ptr(),
-                MB_OKCANCEL | MB_ICONWARNING,
-            )
-        };
 
-        if ans == IDOK {
-            // Close the existing running instance gracefully
+        if ans == DialogResult::Primary {
             unsafe {
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
             }
@@ -197,7 +170,6 @@ pub fn check_and_close_running_instance() -> bool {
             std::thread::sleep(std::time::Duration::from_millis(300));
             true
         } else {
-            // User chose Cancel / Exit (יציאה)
             false
         }
     } else {
@@ -217,14 +189,9 @@ pub fn install_app() {
 
     let target_dir = get_default_install_dir();
 
-    // 1. Try to install directly first without requesting admin permissions
     match try_install(&current_exe, &target_dir) {
-        Ok(()) => {
-            // Succeeded directly! No admin elevation was needed.
-            return;
-        }
+        Ok(()) => return,
         Err(e) => {
-            // 2. ONLY if really needed (PermissionDenied / OS error 5), request admin elevation
             let is_permission_error = e.kind() == std::io::ErrorKind::PermissionDenied
                 || e.raw_os_error() == Some(5);
 
@@ -234,25 +201,19 @@ pub fn install_app() {
                     std::process::exit(0);
                 }
 
-                // If user denied UAC elevation, offer fallback to LocalAppData (no admin needed)
-                let msg = to_wide(
-                    "לא אושרו הרשאות מנהל (Administrator) להתקנה ב-Program Files.\n\n\
-                    האם ברצונך להתקין את האפליקציה בתיקיית המשתמש המקומית (AppData\\Programs)\n\
-                    ללא צורך בהרשאות מנהל?",
+                let ans = ui_theme::show_modern_dialog(
+                    "התקנה בתיקיית המשתמש",
+                    "לא אושרו הרשאות מנהל (Administrator)",
+                    "האם ברצונך להתקין את LangSwitch בתיקיית המשתמש המקומית (AppData\\Programs) ללא צורך בהרשאות מנהל?",
+                    "כן, התקן בתיקיית המשתמש",
+                    Some("ביטול"),
+                    true,
                 );
-                let title = to_wide("הרשאות מנהל נדחו");
-                let ans = unsafe {
-                    MessageBoxW(
-                        ptr::null_mut(),
-                        msg.as_ptr(),
-                        title.as_ptr(),
-                        MB_YESNO | MB_ICONQUESTION,
-                    )
-                };
 
-                if ans == IDYES {
+                if ans == DialogResult::Primary {
                     if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                        let user_target_dir = PathBuf::from(local).join("Programs").join("LangSwitch");
+                        let user_target_dir =
+                            PathBuf::from(local).join("Programs").join("LangSwitch");
                         if try_install(&current_exe, &user_target_dir).is_ok() {
                             return;
                         }
@@ -261,12 +222,18 @@ pub fn install_app() {
                 return;
             }
 
-            // Other error
-            let msg = to_wide(&format!("שגיאה בהעתקת קבצי ההתקנה:\n{}\n\nנתיב יעד: {}", e, target_dir.display()));
-            let title = to_wide("שגיאת התקנה");
-            unsafe {
-                MessageBoxW(ptr::null_mut(), msg.as_ptr(), title.as_ptr(), MB_OK | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR);
-            }
+            ui_theme::show_modern_dialog(
+                "שגיאת התקנה",
+                "לא ניתן להעתיק את קבצי התוכנה",
+                &format!(
+                    "אירעה שגיאה בעת העתקת קבצי ההתקנה:\n{}\n\nנתיב יעד: {}",
+                    e,
+                    target_dir.display()
+                ),
+                "סגור",
+                None,
+                true,
+            );
         }
     }
 }
@@ -275,37 +242,27 @@ pub fn try_install(source_exe: &Path, target_dir: &Path) -> std::io::Result<()> 
     fs::create_dir_all(target_dir)?;
     let target_exe = target_dir.join("langswitch.exe");
 
-    // If existing executable is running or locked, try renaming to .old first
     if target_exe.exists() {
         let old_exe = target_dir.join("langswitch.exe.old");
         let _ = fs::remove_file(&old_exe);
         let _ = fs::rename(&target_exe, &old_exe);
     }
 
-    // Copy executable
     fs::copy(source_exe, &target_exe)?;
 
-    // Register in Windows "Programs and Features" / "Installed Apps"
     register_uninstall_entry(target_dir, &target_exe);
-
-    // Create Start Menu shortcut
     create_start_menu_shortcut(&target_exe, target_dir);
-
-    // Automatically enable Run on Windows startup
     set_startup_enabled(true);
 
-    let msg = to_wide(
-        "LangSwitch הותקנה בהצלחה במחשב! ⚡\n\n\
-        - נוסף קיצור דרך בתפריט התחל.\n\
-        - התוכנה מופיעה כעת ברשימת האפליקציות של Windows (לוח הבקרה / הגדרות).\n\
-        - התוכנה תופעל כעת מהתיקייה המותקנת.",
+    ui_theme::show_modern_dialog(
+        "ההתקנה הושלמה בהצלחה! 🎉",
+        &format!("LangSwitch v{} מוכנה לעבודה", CURRENT_VERSION),
+        "LangSwitch הותקנה בהצלחה במחשב!\n\n• נוסף קיצור דרך בתפריט ההתחלה (Start Menu)\n• התוכנה הוגדרה לפעול אוטומטית עם עליית Windows\n• התוכנה תופעל כעת ברקע באזור מגש המערכת (System Tray)",
+        "מעולה, בוא נתחיל! 🚀",
+        None,
+        true,
     );
-    let title = to_wide("ההתקנה הושלמה בהצלחה");
-    unsafe {
-        MessageBoxW(ptr::null_mut(), msg.as_ptr(), title.as_ptr(), MB_OK | MB_ICONINFORMATION);
-    }
 
-    // Launch installed app and exit current instance
     let _ = Command::new(&target_exe).spawn();
     std::process::exit(0);
 }
@@ -324,7 +281,6 @@ fn elevate_and_install(current_exe: &Path) -> bool {
             SW_SHOW,
         )
     };
-    // ShellExecute returns > 32 on success (UAC approved)
     (res as usize) > 32
 }
 
@@ -333,22 +289,21 @@ pub fn do_install_copy(source_exe: &Path, target_dir: &Path) {
         return;
     }
     if let Err(e) = try_install(source_exe, target_dir) {
-        let msg = to_wide(&format!("שגיאה בהעתקת קבצי ההתקנה:\n{}", e));
-        let title = to_wide("שגיאת התקנה");
-        unsafe {
-            MessageBoxW(ptr::null_mut(), msg.as_ptr(), title.as_ptr(), MB_OK | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR);
-        }
+        ui_theme::show_modern_dialog(
+            "שגיאת התקנה",
+            "העתקת הקבצים נכשלה",
+            &format!("שגיאה בהעתקת קבצי ההתקנה:\n{}", e),
+            "סגור",
+            None,
+            true,
+        );
     }
 }
 
 fn register_uninstall_entry(install_dir: &Path, exe_path: &Path) {
     unsafe {
         let mut key = std::ptr::null_mut();
-        let res = RegCreateKeyW(
-            HKEY_CURRENT_USER,
-            UNINSTALL_KEY.as_ptr(),
-            &mut key,
-        );
+        let res = RegCreateKeyW(HKEY_CURRENT_USER, UNINSTALL_KEY.as_ptr(), &mut key);
 
         if res != 0 {
             return;
@@ -392,7 +347,7 @@ fn register_uninstall_entry(install_dir: &Path, exe_path: &Path) {
         set_sz("URLInfoAbout", "https://github.com/kosherplay-betatester/LangSwitch");
         set_dword("NoModify", 1);
         set_dword("NoRepair", 1);
-        set_dword("EstimatedSize", 2600); // ~2.6MB
+        set_dword("EstimatedSize", 2800);
 
         RegCloseKey(key);
     }
@@ -423,36 +378,29 @@ fn create_start_menu_shortcut(exe_path: &Path, work_dir: &Path) {
 
 /// Uninstalls LangSwitch when invoked with `--uninstall`
 pub fn handle_uninstall() {
-    let msg = to_wide("האם אתה בטוח שברצונך להסיר את LangSwitch מהמחשב?");
-    let title = to_wide("הסרת LangSwitch");
+    let answer = ui_theme::show_modern_dialog(
+        "הסרת התקנת LangSwitch",
+        "הסרת התוכנה וקיצורי הדרך מהמחשב",
+        "האם אתה בטוח שברצונך להסיר את LangSwitch מהמחשב?\n\nפעולה זו תסיר את קבצי התוכנה, קיצור הדרך בתפריט ההתחלה והגדרות ההפעלה האוטומטית.",
+        "כן, הסר את התוכנה",
+        Some("ביטול"),
+        true,
+    );
 
-    let answer = unsafe {
-        MessageBoxW(
-            ptr::null_mut(),
-            msg.as_ptr(),
-            title.as_ptr(),
-            MB_YESNO | MB_ICONQUESTION,
-        )
-    };
-
-    if answer != IDYES {
+    if answer != DialogResult::Primary {
         std::process::exit(0);
     }
 
-    // 1. Remove autostart registry entry
     set_startup_enabled(false);
 
-    // 2. Remove Uninstall registry entry
     unsafe {
         RegDeleteKeyW(HKEY_CURRENT_USER, UNINSTALL_KEY.as_ptr());
     }
 
-    // 3. Remove Start Menu shortcut
     if let Some(shortcut) = get_start_menu_shortcut_path() {
         let _ = fs::remove_file(shortcut);
     }
 
-    // 4. Remove installation folder via detached cmd script after exe exits
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(install_dir) = current_exe.parent() {
             let dir_str = install_dir.to_string_lossy();
@@ -460,22 +408,18 @@ pub fn handle_uninstall() {
                 "ping 127.0.0.1 -n 2 > nul & rmdir /s /q \"{}\"",
                 dir_str
             );
-            let _ = Command::new("cmd")
-                .args(["/C", &cleanup_cmd])
-                .spawn();
+            let _ = Command::new("cmd").args(["/C", &cleanup_cmd]).spawn();
         }
     }
 
-    let done_msg = to_wide("LangSwitch הוסרה בהצלחה מהמחשב.");
-    let done_title = to_wide("ההסרה הושלמה");
-    unsafe {
-        MessageBoxW(
-            ptr::null_mut(),
-            done_msg.as_ptr(),
-            done_title.as_ptr(),
-            MB_OK | MB_ICONINFORMATION,
-        );
-    }
+    ui_theme::show_modern_dialog(
+        "ההסרה הושלמה",
+        "LangSwitch הוסרה מהמחשב",
+        "LangSwitch הוסרה בהצלחה מהמחשב שלך.\nתודה שהשתמשת ב-LangSwitch!",
+        "סגור",
+        None,
+        true,
+    );
 
     std::process::exit(0);
 }

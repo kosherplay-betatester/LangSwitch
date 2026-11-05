@@ -1,22 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-#[cfg(windows)]
 use windows_sys::Win32::System::Registry::{
     HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW,
     RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
 };
-#[cfg(windows)]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
-
-#[cfg(not(windows))]
-pub const MOD_ALT: u32 = 0x0001;
-#[cfg(not(windows))]
-pub const MOD_CONTROL: u32 = 0x0002;
-#[cfg(not(windows))]
-pub const MOD_SHIFT: u32 = 0x0004;
-#[cfg(not(windows))]
-pub const MOD_WIN: u32 = 0x0008;
 
 // Standard and Extended function keys F1..F24
 pub const VK_F1: u32 = 0x70;
@@ -467,24 +456,11 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn config_path() -> PathBuf {
-        #[cfg(windows)]
-        {
-            if let Ok(app_data) = std::env::var("APPDATA") {
-                let mut p = PathBuf::from(app_data);
-                p.push("LangSwitch");
-                p.push("config.json");
-                return p;
-            }
-        }
-        #[cfg(not(windows))]
-        {
-            if let Ok(home) = std::env::var("HOME") {
-                let mut p = PathBuf::from(home);
-                p.push(".config");
-                p.push("langswitch");
-                p.push("config.json");
-                return p;
-            }
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            let mut p = PathBuf::from(app_data);
+            p.push("LangSwitch");
+            p.push("config.json");
+            return p;
         }
         PathBuf::from("config.json")
     }
@@ -517,7 +493,6 @@ impl AppConfig {
     }
 }
 
-#[cfg(windows)]
 const RUN_KEY: &[u16] = &[
     'S' as u16, 'o' as u16, 'f' as u16, 't' as u16, 'w' as u16, 'a' as u16, 'r' as u16,
     'e' as u16, '\\' as u16, 'M' as u16, 'i' as u16, 'c' as u16, 'r' as u16, 'o' as u16,
@@ -528,13 +503,11 @@ const RUN_KEY: &[u16] = &[
     'R' as u16, 'u' as u16, 'n' as u16, 0,
 ];
 
-#[cfg(windows)]
 const APP_NAME: &[u16] = &[
     'L' as u16, 'a' as u16, 'n' as u16, 'g' as u16, 'S' as u16, 'w' as u16, 'i' as u16,
     't' as u16, 'c' as u16, 'h' as u16, 0,
 ];
 
-#[cfg(windows)]
 pub fn is_startup_enabled() -> bool {
     unsafe {
         let mut key = std::ptr::null_mut();
@@ -565,17 +538,6 @@ pub fn is_startup_enabled() -> bool {
     }
 }
 
-#[cfg(not(windows))]
-pub fn is_startup_enabled() -> bool {
-    if let Ok(home) = std::env::var("HOME") {
-        let p = PathBuf::from(home).join(".config/autostart/langswitch.desktop");
-        p.exists()
-    } else {
-        false
-    }
-}
-
-#[cfg(windows)]
 pub fn set_startup_enabled(enable: bool) -> bool {
     unsafe {
         let mut key = std::ptr::null_mut();
@@ -611,24 +573,6 @@ pub fn set_startup_enabled(enable: bool) -> bool {
 
         RegCloseKey(key);
         success
-    }
-}
-
-#[cfg(not(windows))]
-pub fn set_startup_enabled(enable: bool) -> bool {
-    if let Ok(home) = std::env::var("HOME") {
-        let autostart_dir = PathBuf::from(home).join(".config/autostart");
-        let desktop_file = autostart_dir.join("langswitch.desktop");
-        if enable {
-            let _ = fs::create_dir_all(&autostart_dir);
-            let content = "[Desktop Entry]\nType=Application\nName=LangSwitch\nExec=langswitch --convert\nHidden=false\nNoDisplay=false\nX-GNOME-Autostart-enabled=true\n";
-            fs::write(desktop_file, content).is_ok()
-        } else {
-            let _ = fs::remove_file(desktop_file);
-            true
-        }
-    } else {
-        false
     }
 }
 

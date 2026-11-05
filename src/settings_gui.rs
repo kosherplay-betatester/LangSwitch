@@ -1,56 +1,44 @@
 use crate::config::{
     is_windows_conflict, ALL_KEYBOARD_KEYS, AppConfig, HotkeyConfig, VK_F10,
 };
+use crate::ui_theme::{
+    self, to_wide, ButtonStyle, DialogResult, BG_GRAD_BOT_PURPLE, BG_GRAD_TOP_BLUE,
+    CARD_SURFACE_RGB, TEXT_DARK_SLATE, TEXT_DEEP_PURPLE, TEXT_INDIGO, TEXT_SKY_BLUE,
+};
 use crate::updater::{self, UpdateCheckResult, CURRENT_VERSION};
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, InvalidateRect,
-    RoundRect, SelectObject, SetBkMode, SetTextColor, UpdateWindow, CLIP_DEFAULT_PRECIS,
-    DEFAULT_CHARSET, DEFAULT_PITCH, DEFAULT_QUALITY, DT_CENTER, DT_SINGLELINE, DT_VCENTER,
-    FW_BOLD, FW_NORMAL, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS, PS_SOLID, TRANSPARENT,
+    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW,
+    CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, InvalidateRect, SelectObject,
+    SetBkMode, SetTextColor, UpdateWindow, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
+    DEFAULT_QUALITY, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_RTLREADING, DT_SINGLELINE, DT_VCENTER,
+    FW_BOLD, FW_MEDIUM, FW_NORMAL, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SRCCOPY,
+    TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Controls::{
-    DRAWITEMSTRUCT, ODS_SELECTED, WC_BUTTONW, WC_COMBOBOXW, WC_STATICW,
-};
+use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_SELECTED, WC_BUTTONW, WC_COMBOBOXW};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetDlgCtrlID, GetDlgItem,
-    GetMessageW, GetSystemMetrics, GetWindowLongPtrW, IsWindow, LoadImageW, MessageBoxW,
-    PostQuitMessage, RegisterClassExW, SendMessageW, SetForegroundWindow, SetWindowLongPtrW,
-    SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
-    BS_GROUPBOX, BS_OWNERDRAW, CBS_DROPDOWNLIST, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA,
-    HMENU, HTCAPTION, ICON_BIG, ICON_SMALL, IDYES, IMAGE_ICON, LR_DEFAULTCOLOR, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_YESNO, SM_CXICON, SM_CXSCREEN, SM_CXSMICON,
-    SM_CYICON, SM_CYSCREEN, SM_CYSMICON, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_COMMAND,
-    WM_CTLCOLORBTN, WM_CTLCOLORDLG, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DRAWITEM, WM_LBUTTONDOWN,
-    WM_NCLBUTTONDOWN, WM_SETFONT, WM_SETICON, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED,
-    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetDlgItem,
+    GetMessageW, GetSystemMetrics, GetWindowLongPtrW, IsWindow, LoadImageW, PostQuitMessage,
+    RegisterClassExW, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowTextW,
+    ShowWindow, TranslateMessage, BS_OWNERDRAW, CBS_DROPDOWNLIST, CS_HREDRAW, CS_VREDRAW,
+    GWLP_USERDATA, HMENU, HTCAPTION, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, SM_CXICON,
+    SM_CXSCREEN, SM_CXSMICON, SM_CYICON, SM_CYSCREEN, SM_CYSMICON, SW_RESTORE, SW_SHOW, WM_CLOSE,
+    WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLORDLG, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY,
+    WM_DRAWITEM, WM_ERASEBKGND, WM_LBUTTONDOWN, WM_NCLBUTTONDOWN, WM_PAINT, WM_SETFONT,
+    WM_SETICON, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
+    WS_VISIBLE, WS_VSCROLL, SetWindowPos, SWP_NOSIZE, SWP_NOZORDER,
 };
 
 static SETTINGS_HWND: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(ptr::null_mut());
 
-const BST_CHECKED: isize = 1;
-const BST_UNCHECKED: isize = 0;
-
 // Control IDs
-const ID_LBL_HEADER_TITLE: usize = 88;
-const ID_LBL_HEADER_SUB: usize = 89;
-const ID_LBL_GRP_HOTKEYS: usize = 90;
-const ID_LBL_PRI_TITLE: usize = 91;
-const ID_LBL_SEC_TITLE: usize = 92;
-const ID_LBL_AI_TITLE: usize = 93;
-const ID_LBL_TRANS_TITLE: usize = 98;
-const ID_LBL_GRP_OPTIONS: usize = 94;
-const ID_LBL_GRP_UPDATES: usize = 95;
-const ID_LBL_VERSION: usize = 96;
-const ID_LBL_LANG: usize = 97;
-
 const ID_CHK_PRI_CTRL: usize = 101;
 const ID_CHK_PRI_ALT: usize = 102;
 const ID_CHK_PRI_SHIFT: usize = 103;
@@ -91,12 +79,90 @@ const CB_SETCURSEL: u32 = 0x014E;
 const CB_GETCURSEL: u32 = 0x0147;
 const CB_RESETCONTENT: u32 = 0x014B;
 
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
+struct SettingsState {
+    on_save: Box<dyn Fn(AppConfig) + Send + 'static>,
+    hfont_body: HFONT,
+    hfont_bold: HFONT,
+    hfont_section: HFONT,
+    hfont_title: HFONT,
+    hfont_sub: HFONT,
+    card_brush: HBRUSH,
+    pri_mods: u32,
+    pri_vk: u32,
+    sec_mods: u32,
+    sec_vk: u32,
+    ai_mods: u32,
+    ai_vk: u32,
+    trans_mods: u32,
+    trans_vk: u32,
+    auto_switch_layout: bool,
+    auto_select_line: bool,
+    start_with_windows: bool,
+    restore_clipboard: bool,
+    is_english: bool,
+    last_welcome_version: Option<String>,
 }
 
-fn rgb(r: u8, g: u8, b: u8) -> u32 {
-    (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+impl SettingsState {
+    fn is_ctrl_checked(&self, id: usize) -> bool {
+        match id {
+            ID_CHK_PRI_CTRL => self.pri_mods & MOD_CONTROL != 0,
+            ID_CHK_PRI_ALT => self.pri_mods & MOD_ALT != 0,
+            ID_CHK_PRI_SHIFT => self.pri_mods & MOD_SHIFT != 0,
+            ID_CHK_PRI_WIN => self.pri_mods & MOD_WIN != 0,
+
+            ID_CHK_SEC_CTRL => self.sec_mods & MOD_CONTROL != 0,
+            ID_CHK_SEC_ALT => self.sec_mods & MOD_ALT != 0,
+            ID_CHK_SEC_SHIFT => self.sec_mods & MOD_SHIFT != 0,
+            ID_CHK_SEC_WIN => self.sec_mods & MOD_WIN != 0,
+
+            ID_CHK_AI_CTRL => self.ai_mods & MOD_CONTROL != 0,
+            ID_CHK_AI_ALT => self.ai_mods & MOD_ALT != 0,
+            ID_CHK_AI_SHIFT => self.ai_mods & MOD_SHIFT != 0,
+            ID_CHK_AI_WIN => self.ai_mods & MOD_WIN != 0,
+
+            ID_CHK_TRANS_CTRL => self.trans_mods & MOD_CONTROL != 0,
+            ID_CHK_TRANS_ALT => self.trans_mods & MOD_ALT != 0,
+            ID_CHK_TRANS_SHIFT => self.trans_mods & MOD_SHIFT != 0,
+            ID_CHK_TRANS_WIN => self.trans_mods & MOD_WIN != 0,
+
+            ID_CHK_AUTO_SWITCH => self.auto_switch_layout,
+            ID_CHK_AUTO_SELECT_LINE => self.auto_select_line,
+            ID_CHK_START_WINDOWS => self.start_with_windows,
+            ID_CHK_RESTORE_CLIPBOARD => self.restore_clipboard,
+            _ => false,
+        }
+    }
+
+    fn toggle_ctrl(&mut self, id: usize) {
+        match id {
+            ID_CHK_PRI_CTRL => self.pri_mods ^= MOD_CONTROL,
+            ID_CHK_PRI_ALT => self.pri_mods ^= MOD_ALT,
+            ID_CHK_PRI_SHIFT => self.pri_mods ^= MOD_SHIFT,
+            ID_CHK_PRI_WIN => self.pri_mods ^= MOD_WIN,
+
+            ID_CHK_SEC_CTRL => self.sec_mods ^= MOD_CONTROL,
+            ID_CHK_SEC_ALT => self.sec_mods ^= MOD_ALT,
+            ID_CHK_SEC_SHIFT => self.sec_mods ^= MOD_SHIFT,
+            ID_CHK_SEC_WIN => self.sec_mods ^= MOD_WIN,
+
+            ID_CHK_AI_CTRL => self.ai_mods ^= MOD_CONTROL,
+            ID_CHK_AI_ALT => self.ai_mods ^= MOD_ALT,
+            ID_CHK_AI_SHIFT => self.ai_mods ^= MOD_SHIFT,
+            ID_CHK_AI_WIN => self.ai_mods ^= MOD_WIN,
+
+            ID_CHK_TRANS_CTRL => self.trans_mods ^= MOD_CONTROL,
+            ID_CHK_TRANS_ALT => self.trans_mods ^= MOD_ALT,
+            ID_CHK_TRANS_SHIFT => self.trans_mods ^= MOD_SHIFT,
+            ID_CHK_TRANS_WIN => self.trans_mods ^= MOD_WIN,
+
+            ID_CHK_AUTO_SWITCH => self.auto_switch_layout = !self.auto_switch_layout,
+            ID_CHK_AUTO_SELECT_LINE => self.auto_select_line = !self.auto_select_line,
+            ID_CHK_START_WINDOWS => self.start_with_windows = !self.start_with_windows,
+            ID_CHK_RESTORE_CLIPBOARD => self.restore_clipboard = !self.restore_clipboard,
+            _ => {}
+        }
+    }
 }
 
 pub fn show_settings_window(
@@ -116,8 +182,7 @@ pub fn show_settings_window(
         let hinstance = GetModuleHandleW(ptr::null());
         let class_name = to_wide("LangSwitchSettingsWindow");
 
-        // Creative light blue & purplish periwinkle background (#F4F5FD)
-        let bg_brush = CreateSolidBrush(rgb(244, 245, 253));
+        let card_brush = CreateSolidBrush(CARD_SURFACE_RGB);
 
         let wnd_class = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -128,7 +193,7 @@ pub fn show_settings_window(
             hInstance: hinstance,
             hIcon: ptr::null_mut(),
             hCursor: ptr::null_mut(),
-            hbrBackground: bg_brush,
+            hbrBackground: ptr::null_mut(),
             lpszMenuName: ptr::null(),
             lpszClassName: class_name.as_ptr(),
             hIconSm: ptr::null_mut(),
@@ -136,25 +201,25 @@ pub fn show_settings_window(
 
         RegisterClassExW(&wnd_class);
 
-        let win_width = 620;
-        let win_height = 705;
+        let win_width = 650;
+        let win_height = 740;
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let pos_x = (screen_w - win_width) / 2;
         let pos_y = (screen_h - win_height) / 2;
 
-        let title = if current_config.ui_language == "en" {
+        let is_en = current_config.ui_language == "en";
+        let title = if is_en {
             to_wide("LangSwitch - Settings")
         } else {
             to_wide("LangSwitch - הגדרות")
         };
 
-        // Window with native caption, system menu, and draggable titlebar
         let hwnd = CreateWindowExW(
             0,
             class_name.as_ptr(),
             title.as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             pos_x,
             pos_y,
             win_width,
@@ -167,7 +232,7 @@ pub fn show_settings_window(
 
         SETTINGS_HWND.store(hwnd as *mut _, Ordering::SeqCst);
 
-        // Set application icons on the window (Title bar and Alt+Tab)
+        // Set application icons
         let sm_cx = GetSystemMetrics(SM_CXSMICON);
         let sm_cy = GetSystemMetrics(SM_CYSMICON);
         let big_cx = GetSystemMetrics(SM_CXICON);
@@ -197,16 +262,22 @@ pub fn show_settings_window(
             SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon_big as LPARAM);
         }
 
-        // Modern fonts
+        // Fonts
         let font_name = to_wide("Segoe UI");
         let hfont_title = CreateFontW(
-            -18, 0, 0, 0, FW_BOLD as i32, 0, 0, 0,
+            -20, 0, 0, 0, FW_BOLD as i32, 0, 0, 0,
             DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
             CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
             DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
         let hfont_sub = CreateFontW(
-            -12, 0, 0, 0, FW_NORMAL as i32, 0, 0, 0,
+            -13, 0, 0, 0, FW_MEDIUM as i32, 0, 0, 0,
+            DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
+            CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
+            DEFAULT_PITCH as u32, font_name.as_ptr(),
+        );
+        let hfont_section = CreateFontW(
+            -15, 0, 0, 0, FW_BOLD as i32, 0, 0, 0,
             DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
             CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
             DEFAULT_PITCH as u32, font_name.as_ptr(),
@@ -218,39 +289,39 @@ pub fn show_settings_window(
             DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
         let hfont_body = CreateFontW(
-            -13, 0, 0, 0, FW_NORMAL as i32, 0, 0, 0,
+            -14, 0, 0, 0, FW_NORMAL as i32, 0, 0, 0,
             DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32,
             CLIP_DEFAULT_PRECIS as u32, DEFAULT_QUALITY as u32,
             DEFAULT_PITCH as u32, font_name.as_ptr(),
         );
 
-        let is_en = current_config.ui_language == "en";
-        init_controls(
-            hwnd,
-            hinstance,
-            hfont_body,
-            hfont_bold,
-            hfont_title,
-            hfont_sub,
-            &current_config,
-            is_en,
-        );
-
+        // Initialize state BEFORE creating controls so WM_DRAWITEM / WM_CTLCOLOR always have valid state!
         let state = Box::new(SettingsState {
             on_save,
             hfont_body,
             hfont_bold,
+            hfont_section,
             hfont_title,
             hfont_sub,
-            bg_brush,
+            card_brush,
+            pri_mods: current_config.hotkey_primary.modifiers,
             pri_vk: current_config.hotkey_primary.vk,
+            sec_mods: current_config.hotkey_secondary.modifiers,
             sec_vk: current_config.hotkey_secondary.vk,
+            ai_mods: current_config.hotkey_ai_search.modifiers,
             ai_vk: current_config.hotkey_ai_search.vk,
+            trans_mods: current_config.hotkey_translate.modifiers,
             trans_vk: current_config.hotkey_translate.vk,
+            auto_switch_layout: current_config.auto_switch_layout,
+            auto_select_line: current_config.auto_select_line,
+            start_with_windows: current_config.start_with_windows,
+            restore_clipboard: current_config.restore_clipboard,
             is_english: is_en,
             last_welcome_version: current_config.last_welcome_version.clone(),
         });
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
+
+        init_controls(hwnd, hinstance, hfont_body, &current_config, is_en);
 
         ShowWindow(hwnd, SW_SHOW);
         SetForegroundWindow(hwnd);
@@ -265,28 +336,10 @@ pub fn show_settings_window(
     }))
 }
 
-struct SettingsState {
-    on_save: Box<dyn Fn(AppConfig) + Send + 'static>,
-    hfont_body: HFONT,
-    hfont_bold: HFONT,
-    hfont_title: HFONT,
-    hfont_sub: HFONT,
-    bg_brush: HBRUSH,
-    pri_vk: u32,
-    sec_vk: u32,
-    ai_vk: u32,
-    trans_vk: u32,
-    is_english: bool,
-    last_welcome_version: Option<String>,
-}
-
 unsafe fn init_controls(
     hwnd: HWND,
     hinstance: windows_sys::Win32::Foundation::HMODULE,
     hfont_body: HFONT,
-    hfont_bold: HFONT,
-    hfont_title: HFONT,
-    hfont_sub: HFONT,
     config: &AppConfig,
     is_en: bool,
 ) {
@@ -314,280 +367,128 @@ unsafe fn init_controls(
         }
     };
 
-    // --- Top Header Title & Subtitle ---
-    let lbl_header = create_ctrl(
-        WC_STATICW,
-        if is_en { "⚡ LangSwitch - Settings" } else { "⚡ הגדרות LangSwitch" },
-        0,
-        20,
-        14,
-        290,
-        24,
-        ID_LBL_HEADER_TITLE,
-    );
-    unsafe {
-        SendMessageW(lbl_header, WM_SETFONT, hfont_title as WPARAM, 1);
-    }
-
-    let lbl_sub = create_ctrl(
-        WC_STATICW,
-        if is_en { "Hebrew ↔ English Instant Layout Switcher" } else { "המרת שפה מהירה בין עברית לאנגלית" },
-        0,
-        22,
-        38,
-        290,
-        18,
-        ID_LBL_HEADER_SUB,
-    );
-    unsafe {
-        SendMessageW(lbl_sub, WM_SETFONT, hfont_sub as WPARAM, 1);
-    }
-
-    // --- Language Selector at Top Right ---
-    let lbl_lang = create_ctrl(
-        WC_STATICW,
-        if is_en { "Language / שפה:" } else { "שפה / Language:" },
-        0,
-        320,
-        22,
-        120,
-        22,
-        ID_LBL_LANG,
-    );
-    unsafe {
-        SendMessageW(lbl_lang, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
+    // Language ComboBox inside Header Banner (Left side in RTL Hebrew, Right side in LTR English)
+    let lang_x = if is_en { 442 } else { 32 };
     let cmb_lang = create_ctrl(
         WC_COMBOBOXW,
         "",
         CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        445,
-        18,
-        145,
+        lang_x,
+        30,
+        155,
         120,
         ID_CMB_LANG,
     );
-    let lang_he = to_wide("עברית (Hebrew)");
-    let lang_en = to_wide("English");
+    let lang_he = to_wide("🇮🇱 עברית (Hebrew)");
+    let lang_en = to_wide("🇺🇸 English");
     unsafe {
         SendMessageW(cmb_lang, CB_ADDSTRING, 0, lang_he.as_ptr() as LPARAM);
         SendMessageW(cmb_lang, CB_ADDSTRING, 0, lang_en.as_ptr() as LPARAM);
         SendMessageW(cmb_lang, CB_SETCURSEL, if is_en { 1 } else { 0 }, 0);
     }
 
-    // --- Group 1: Hotkeys ---
-    let grp_hotkeys = create_ctrl(
-        WC_BUTTONW,
-        if is_en { " Hotkeys " } else { "\u{200F} מקשי קיצור (Hotkeys) " },
-        BS_GROUPBOX as u32,
-        15,
-        66,
-        575,
-        292,
-        ID_LBL_GRP_HOTKEYS,
-    );
-    unsafe {
-        SendMessageW(grp_hotkeys, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
+    // Helper for creating a 4-modifier pill row + key dropdown
+    let create_hotkey_row = |y_controls: i32,
+                                 id_ctrl: usize,
+                                 id_alt: usize,
+                                 id_shift: usize,
+                                 id_win: usize,
+                                 id_cmb: usize| {
+        let pill_w = 58;
+        let pill_h = 26;
+        let gap = 6;
+        let start_x = 34;
 
-    // 1. Primary hotkey
-    let lbl_pri = create_ctrl(
-        WC_STATICW,
-        if is_en {
-            "Primary Hotkey (Convert text + Switch input layout):"
-        } else {
-            "\u{200F}מקש ראשי (המרה + החלפת שפת מקלדת):"
-        },
-        0,
-        30,
-        88,
-        450,
-        18,
-        ID_LBL_PRI_TITLE,
-    );
-    unsafe {
-        SendMessageW(lbl_pri, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
+        create_ctrl(
+            WC_BUTTONW,
+            "Ctrl",
+            BS_OWNERDRAW as u32 | WS_TABSTOP,
+            start_x,
+            y_controls,
+            pill_w,
+            pill_h,
+            id_ctrl,
+        );
+        create_ctrl(
+            WC_BUTTONW,
+            "Alt",
+            BS_OWNERDRAW as u32 | WS_TABSTOP,
+            start_x + (pill_w + gap),
+            y_controls,
+            pill_w,
+            pill_h,
+            id_alt,
+        );
+        create_ctrl(
+            WC_BUTTONW,
+            "Shift",
+            BS_OWNERDRAW as u32 | WS_TABSTOP,
+            start_x + (pill_w + gap) * 2,
+            y_controls,
+            pill_w,
+            pill_h,
+            id_shift,
+        );
+        create_ctrl(
+            WC_BUTTONW,
+            "Win",
+            BS_OWNERDRAW as u32 | WS_TABSTOP,
+            start_x + (pill_w + gap) * 3,
+            y_controls,
+            pill_w,
+            pill_h,
+            id_win,
+        );
 
-    let chk_pri_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 108, 52, 20, ID_CHK_PRI_CTRL);
-    let chk_pri_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 108, 48, 20, ID_CHK_PRI_ALT);
-    let chk_pri_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 108, 55, 20, ID_CHK_PRI_SHIFT);
-    let chk_pri_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 108, 50, 20, ID_CHK_PRI_WIN);
+        create_ctrl(
+            WC_COMBOBOXW,
+            "",
+            CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
+            300,
+            y_controls + 1,
+            298,
+            380,
+            id_cmb,
+        );
+    };
 
-    let _cmb_pri_key = create_ctrl(
-        WC_COMBOBOXW,
-        "",
-        CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        265,
-        106,
-        310,
-        380,
+    // Card 1 Hotkey Rows:
+    // Row 1: Primary (y_label = 114, y_controls = 136)
+    create_hotkey_row(
+        136,
+        ID_CHK_PRI_CTRL,
+        ID_CHK_PRI_ALT,
+        ID_CHK_PRI_SHIFT,
+        ID_CHK_PRI_WIN,
         ID_CMB_PRI_KEY,
     );
-
-    // 2. Secondary hotkey
-    let lbl_sec = create_ctrl(
-        WC_STATICW,
-        if is_en {
-            "Secondary Hotkey (Convert text only, no layout switch):"
-        } else {
-            "\u{200F}מקש משני (המרה בלבד ללא החלפת מקלדת):"
-        },
-        0,
-        30,
-        142,
-        450,
-        18,
-        ID_LBL_SEC_TITLE,
-    );
-    unsafe {
-        SendMessageW(lbl_sec, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
-    let chk_sec_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 162, 52, 20, ID_CHK_SEC_CTRL);
-    let chk_sec_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 162, 48, 20, ID_CHK_SEC_ALT);
-    let chk_sec_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 162, 55, 20, ID_CHK_SEC_SHIFT);
-    let chk_sec_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 162, 50, 20, ID_CHK_SEC_WIN);
-
-    let _cmb_sec_key = create_ctrl(
-        WC_COMBOBOXW,
-        "",
-        CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        265,
-        160,
-        310,
-        380,
+    // Row 2: Secondary (y_label = 172, y_controls = 194)
+    create_hotkey_row(
+        194,
+        ID_CHK_SEC_CTRL,
+        ID_CHK_SEC_ALT,
+        ID_CHK_SEC_SHIFT,
+        ID_CHK_SEC_WIN,
         ID_CMB_SEC_KEY,
     );
-
-    // 3. Google AI Search hotkey
-    let lbl_ai = create_ctrl(
-        WC_STATICW,
-        if is_en {
-            "Google AI Search Hotkey (AI Mode):"
-        } else {
-            "\u{200F}חיפוש גוגל במצב AI (Google AI Search):"
-        },
-        0,
-        30,
-        196,
-        450,
-        18,
-        ID_LBL_AI_TITLE,
-    );
-    unsafe {
-        SendMessageW(lbl_ai, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
-    let chk_ai_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 216, 52, 20, ID_CHK_AI_CTRL);
-    let chk_ai_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 216, 48, 20, ID_CHK_AI_ALT);
-    let chk_ai_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 216, 55, 20, ID_CHK_AI_SHIFT);
-    let chk_ai_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 216, 50, 20, ID_CHK_AI_WIN);
-
-    let _cmb_ai_key = create_ctrl(
-        WC_COMBOBOXW,
-        "",
-        CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        265,
-        214,
-        310,
-        380,
+    // Row 3: Google AI Search (y_label = 230, y_controls = 252)
+    create_hotkey_row(
+        252,
+        ID_CHK_AI_CTRL,
+        ID_CHK_AI_ALT,
+        ID_CHK_AI_SHIFT,
+        ID_CHK_AI_WIN,
         ID_CMB_AI_KEY,
     );
-
-    // 4. Google Quick Translation hotkey
-    let lbl_trans = create_ctrl(
-        WC_STATICW,
-        if is_en {
-            "Quick Translation Hotkey (Hebrew ↔ English via Google):"
-        } else {
-            "\u{200F}תרגום מהיר בגוגל (Google Quick Translate):"
-        },
-        0,
-        30,
-        250,
-        450,
-        18,
-        ID_LBL_TRANS_TITLE,
-    );
-    unsafe {
-        SendMessageW(lbl_trans, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
-    let chk_trans_ctrl = create_ctrl(WC_BUTTONW, "Ctrl", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 30, 270, 52, 20, ID_CHK_TRANS_CTRL);
-    let chk_trans_alt = create_ctrl(WC_BUTTONW, "Alt", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 86, 270, 48, 20, ID_CHK_TRANS_ALT);
-    let chk_trans_shift = create_ctrl(WC_BUTTONW, "Shift", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 138, 270, 55, 20, ID_CHK_TRANS_SHIFT);
-    let chk_trans_win = create_ctrl(WC_BUTTONW, "Win", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 198, 270, 50, 20, ID_CHK_TRANS_WIN);
-
-    let _cmb_trans_key = create_ctrl(
-        WC_COMBOBOXW,
-        "",
-        CBS_DROPDOWNLIST as u32 | WS_TABSTOP | WS_VSCROLL,
-        265,
-        268,
+    // Row 4: Quick Translation (y_label = 288, y_controls = 310)
+    create_hotkey_row(
         310,
-        380,
+        ID_CHK_TRANS_CTRL,
+        ID_CHK_TRANS_ALT,
+        ID_CHK_TRANS_SHIFT,
+        ID_CHK_TRANS_WIN,
         ID_CMB_TRANS_KEY,
     );
-
-    // Set primary modifier checkboxes
-    unsafe {
-        if config.hotkey_primary.modifiers & MOD_CONTROL != 0 {
-            SendMessageW(chk_pri_ctrl, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_primary.modifiers & MOD_ALT != 0 {
-            SendMessageW(chk_pri_alt, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_primary.modifiers & MOD_SHIFT != 0 {
-            SendMessageW(chk_pri_shift, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_primary.modifiers & MOD_WIN != 0 {
-            SendMessageW(chk_pri_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-
-        // Set secondary modifier checkboxes
-        if config.hotkey_secondary.modifiers & MOD_CONTROL != 0 {
-            SendMessageW(chk_sec_ctrl, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_secondary.modifiers & MOD_ALT != 0 {
-            SendMessageW(chk_sec_alt, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_secondary.modifiers & MOD_SHIFT != 0 {
-            SendMessageW(chk_sec_shift, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_secondary.modifiers & MOD_WIN != 0 {
-            SendMessageW(chk_sec_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-
-        // Set AI search modifier checkboxes
-        if config.hotkey_ai_search.modifiers & MOD_CONTROL != 0 {
-            SendMessageW(chk_ai_ctrl, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_ai_search.modifiers & MOD_ALT != 0 {
-            SendMessageW(chk_ai_alt, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_ai_search.modifiers & MOD_SHIFT != 0 {
-            SendMessageW(chk_ai_shift, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_ai_search.modifiers & MOD_WIN != 0 {
-            SendMessageW(chk_ai_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-
-        // Set translation modifier checkboxes
-        if config.hotkey_translate.modifiers & MOD_CONTROL != 0 {
-            SendMessageW(chk_trans_ctrl, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_translate.modifiers & MOD_ALT != 0 {
-            SendMessageW(chk_trans_alt, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_translate.modifiers & MOD_SHIFT != 0 {
-            SendMessageW(chk_trans_shift, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-        if config.hotkey_translate.modifiers & MOD_WIN != 0 {
-            SendMessageW(chk_trans_win, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-    }
 
     // Populate comboboxes
     unsafe {
@@ -617,173 +518,98 @@ unsafe fn init_controls(
         );
     }
 
-    // --- Group 2: Behavior Options ---
-    let grp_options = create_ctrl(
-        WC_BUTTONW,
-        if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " },
-        BS_GROUPBOX as u32,
-        15,
-        368,
-        575,
-        146,
-        ID_LBL_GRP_OPTIONS,
-    );
-    unsafe {
-        SendMessageW(grp_options, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
-    let chk_switch = create_ctrl(
-        WC_BUTTONW,
-        if is_en {
-            "Switch keyboard layout automatically on conversion (Primary key)"
-        } else {
-            "\u{200F}החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)"
-        },
-        BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        30,
-        392,
-        540,
-        22,
-        ID_CHK_AUTO_SWITCH,
-    );
-    if config.auto_switch_layout {
-        unsafe {
-            SendMessageW(chk_switch, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-    }
-
-    let chk_select = create_ctrl(
-        WC_BUTTONW,
-        if is_en {
-            "Auto-select current line if no text is selected"
-        } else {
-            "\u{200F}סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט"
-        },
-        BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        30,
-        419,
-        540,
-        22,
-        ID_CHK_AUTO_SELECT_LINE,
-    );
-    if config.auto_select_line {
-        unsafe {
-            SendMessageW(chk_select, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-    }
-
-    let chk_start = create_ctrl(
-        WC_BUTTONW,
-        if is_en {
-            "Start automatically on Windows login"
-        } else {
-            "\u{200F}הפעל אוטומטית עם כניסה למערכת Windows"
-        },
-        BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        30,
-        446,
-        540,
-        22,
-        ID_CHK_START_WINDOWS,
-    );
-    if config.start_with_windows {
-        unsafe {
-            SendMessageW(chk_start, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-    }
-
-    let chk_clip = create_ctrl(
-        WC_BUTTONW,
-        if is_en {
-            "Restore original clipboard contents after conversion"
-        } else {
-            "\u{200F}שחזר לוח גזירים (Clipboard) מקורי לאחר ההמרה"
-        },
-        BS_AUTOCHECKBOX as u32 | WS_TABSTOP,
-        30,
-        473,
-        540,
-        22,
-        ID_CHK_RESTORE_CLIPBOARD,
-    );
-    if config.restore_clipboard {
-        unsafe {
-            SendMessageW(chk_clip, BM_SETCHECK, BST_CHECKED as WPARAM, 0);
-        }
-    }
-
-    // --- Group 3: Update and Info ---
-    let grp_updates = create_ctrl(
-        WC_BUTTONW,
-        if is_en { " Updates & Info " } else { "\u{200F} עדכונים ומידע " },
-        BS_GROUPBOX as u32,
-        15,
-        524,
-        575,
-        68,
-        ID_LBL_GRP_UPDATES,
-    );
-    unsafe {
-        SendMessageW(grp_updates, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
-    let ver_label = if is_en {
-        format!("Current Version: v{}", CURRENT_VERSION)
-    } else {
-        format!("\u{200F}גרסה נוכחית: v{}", CURRENT_VERSION)
-    };
-    let lbl_ver = create_ctrl(WC_STATICW, &ver_label, 0, 30, 550, 240, 20, ID_LBL_VERSION);
-    unsafe {
-        SendMessageW(lbl_ver, WM_SETFONT, hfont_bold as WPARAM, 1);
-    }
-
+    // Card 2: 4 Owner-Drawn Custom Checkbox Rows (inside Card 2: y = 362..534)
+    let opt_x = 34;
+    let opt_w = 564;
+    let opt_h = 28;
     create_ctrl(
         WC_BUTTONW,
-        if is_en { "Check for Updates" } else { "בדיקת עדכונים ב-GitHub" },
+        "",
         BS_OWNERDRAW as u32 | WS_TABSTOP,
-        370,
-        542,
-        205,
-        34,
+        opt_x,
+        402,
+        opt_w,
+        opt_h,
+        ID_CHK_AUTO_SWITCH,
+    );
+    create_ctrl(
+        WC_BUTTONW,
+        "",
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
+        opt_x,
+        433,
+        opt_w,
+        opt_h,
+        ID_CHK_AUTO_SELECT_LINE,
+    );
+    create_ctrl(
+        WC_BUTTONW,
+        "",
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
+        opt_x,
+        464,
+        opt_w,
+        opt_h,
+        ID_CHK_START_WINDOWS,
+    );
+    create_ctrl(
+        WC_BUTTONW,
+        "",
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
+        opt_x,
+        495,
+        opt_w,
+        opt_h,
+        ID_CHK_RESTORE_CLIPBOARD,
+    );
+
+    // Card 3: Updates & Version (y = 546..618)
+    create_ctrl(
+        WC_BUTTONW,
+        "",
+        BS_OWNERDRAW as u32 | WS_TABSTOP,
+        380,
+        566,
+        218,
+        36,
         ID_BTN_CHECK_UPDATE,
     );
 
-    // --- Bottom Action Buttons ---
+    // Bottom Action Buttons (y = 634)
     create_ctrl(
         WC_BUTTONW,
-        if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" },
+        "",
         BS_OWNERDRAW as u32 | WS_TABSTOP,
-        15,
-        606,
-        160,
-        36,
+        18,
+        634,
+        175,
+        40,
         ID_BTN_RESTORE_DEFAULTS,
     );
 
     create_ctrl(
         WC_BUTTONW,
-        if is_en { "Save & Apply" } else { "שמור והחל" },
+        "",
         BS_OWNERDRAW as u32 | WS_TABSTOP,
-        325,
-        606,
-        140,
-        36,
+        318,
+        634,
+        165,
+        40,
         ID_BTN_SAVE,
     );
 
     create_ctrl(
         WC_BUTTONW,
-        if is_en { "Cancel" } else { "ביטול" },
+        "",
         BS_OWNERDRAW as u32 | WS_TABSTOP,
-        475,
-        606,
-        115,
-        36,
+        495,
+        634,
+        120,
+        40,
         ID_BTN_CANCEL,
     );
 }
 
-/// Populates a combobox with all keys that do NOT conflict with Windows shortcuts for the given modifier set.
 unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_vk: u32) {
     let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
     let cmb = unsafe { GetDlgItem(hwnd, cmb_id as i32) };
@@ -810,7 +636,6 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
         }
     }
 
-    // If desired_vk was conflicted, fallback to F10 if available, otherwise first valid key
     if !found && !valid_keys.is_empty() {
         if let Some(pos) = valid_keys.iter().position(|(_, vk)| *vk == VK_F10) {
             selected_idx = pos;
@@ -825,7 +650,6 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
         UpdateWindow(cmb);
     }
 
-    // Keep state updated so state.pri_vk / state.sec_vk / state.ai_vk / state.trans_vk always reflects the actual selected key!
     if !state_ptr.is_null() {
         let state = unsafe { &mut *state_ptr };
         if let Some((_, vk)) = valid_keys.get(selected_idx) {
@@ -842,113 +666,19 @@ unsafe fn populate_combobox(hwnd: HWND, cmb_id: usize, modifiers: u32, desired_v
     }
 }
 
-/// Reads the modifier checkboxes and updates the combobox filtering in real-time.
-/// target: 0 = Primary, 1 = Secondary, 2 = AI Search, 3 = Translation
 unsafe fn refresh_hotkey_combobox(hwnd: HWND, target: u8) {
     let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+    if state_ptr.is_null() {
+        return;
+    }
+    let state = unsafe { &*state_ptr };
 
-    let is_checked = |id: usize| -> bool {
-        unsafe {
-            let ctrl = GetDlgItem(hwnd, id as i32);
-            SendMessageW(ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED
-        }
-    };
-
-    if target == 0 {
-        let mut modifiers = 0;
-        if is_checked(ID_CHK_PRI_CTRL) {
-            modifiers |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_PRI_ALT) {
-            modifiers |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_PRI_SHIFT) {
-            modifiers |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_PRI_WIN) {
-            modifiers |= MOD_WIN;
-        }
-
-        let current_vk = if !state_ptr.is_null() {
-            unsafe { (*state_ptr).pri_vk }
-        } else {
-            VK_F10
-        };
-
-        unsafe {
-            populate_combobox(hwnd, ID_CMB_PRI_KEY, modifiers, current_vk);
-        }
-    } else if target == 1 {
-        let mut modifiers = 0;
-        if is_checked(ID_CHK_SEC_CTRL) {
-            modifiers |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_SEC_ALT) {
-            modifiers |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_SEC_SHIFT) {
-            modifiers |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_SEC_WIN) {
-            modifiers |= MOD_WIN;
-        }
-
-        let current_vk = if !state_ptr.is_null() {
-            unsafe { (*state_ptr).sec_vk }
-        } else {
-            VK_F10
-        };
-
-        unsafe {
-            populate_combobox(hwnd, ID_CMB_SEC_KEY, modifiers, current_vk);
-        }
-    } else if target == 2 {
-        let mut modifiers = 0;
-        if is_checked(ID_CHK_AI_CTRL) {
-            modifiers |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_AI_ALT) {
-            modifiers |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_AI_SHIFT) {
-            modifiers |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_AI_WIN) {
-            modifiers |= MOD_WIN;
-        }
-
-        let current_vk = if !state_ptr.is_null() {
-            unsafe { (*state_ptr).ai_vk }
-        } else {
-            0x47 // 'G'
-        };
-
-        unsafe {
-            populate_combobox(hwnd, ID_CMB_AI_KEY, modifiers, current_vk);
-        }
-    } else {
-        let mut modifiers = 0;
-        if is_checked(ID_CHK_TRANS_CTRL) {
-            modifiers |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_TRANS_ALT) {
-            modifiers |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_TRANS_SHIFT) {
-            modifiers |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_TRANS_WIN) {
-            modifiers |= MOD_WIN;
-        }
-
-        let current_vk = if !state_ptr.is_null() {
-            unsafe { (*state_ptr).trans_vk }
-        } else {
-            0x54 // 'T'
-        };
-
-        unsafe {
-            populate_combobox(hwnd, ID_CMB_TRANS_KEY, modifiers, current_vk);
+    unsafe {
+        match target {
+            0 => populate_combobox(hwnd, ID_CMB_PRI_KEY, state.pri_mods, state.pri_vk),
+            1 => populate_combobox(hwnd, ID_CMB_SEC_KEY, state.sec_mods, state.sec_vk),
+            2 => populate_combobox(hwnd, ID_CMB_AI_KEY, state.ai_mods, state.ai_vk),
+            _ => populate_combobox(hwnd, ID_CMB_TRANS_KEY, state.trans_mods, state.trans_vk),
         }
     }
 }
@@ -960,252 +690,569 @@ unsafe extern "system" fn settings_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
-        // Dragging handler: allows clicking on header or background to drag the window smoothly!
+        WM_ERASEBKGND => return 1,
         WM_LBUTTONDOWN => unsafe {
             ReleaseCapture();
             SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION as WPARAM, 0);
             return 0;
         },
+        WM_PAINT => {
+            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
+            let mut ps: PAINTSTRUCT = unsafe { std::mem::zeroed() };
+            let hdc = unsafe { BeginPaint(hwnd, &mut ps) };
+
+            if !state_ptr.is_null() {
+                let state = unsafe { &*state_ptr };
+                let is_en = state.is_english;
+                let is_rtl = !is_en;
+
+                let mut rc = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+                unsafe {
+                    GetClientRect(hwnd, &mut rc);
+                }
+                let w = rc.right - rc.left;
+                let h = rc.bottom - rc.top;
+
+                unsafe {
+                    let mem_dc = CreateCompatibleDC(hdc);
+                    let mem_bmp = CreateCompatibleBitmap(hdc, w, h);
+                    let old_bmp = SelectObject(mem_dc, mem_bmp as *mut _);
+
+                    // 1. Smooth Light Blue -> Light Purple window background gradient
+                    ui_theme::fill_vertical_gradient(
+                        mem_dc,
+                        &rc,
+                        BG_GRAD_TOP_BLUE,
+                        BG_GRAD_BOT_PURPLE,
+                    );
+
+                    // 2. Top Header Banner (Sky Blue <-> Light Purple Gradient)
+                    let header_title = if is_en {
+                        "⚡ LangSwitch Settings"
+                    } else {
+                        "⚡ הגדרות LangSwitch"
+                    };
+                    let header_sub = if is_en {
+                        "Instant Hebrew <-> English Layout Text Switcher for Windows"
+                    } else {
+                        "המרת טקסט והחלפת שפה מהירה בין עברית לאנגלית עבור Windows"
+                    };
+                    ui_theme::draw_header_banner(
+                        mem_dc,
+                        18,
+                        12,
+                        w - 18,
+                        74,
+                        header_title,
+                        header_sub,
+                        state.hfont_title,
+                        state.hfont_sub,
+                        is_rtl,
+                    );
+
+                    // 3. Card 1: Hotkeys (Light Blue -> Light Purple gradient border)
+                    ui_theme::draw_gradient_card(mem_dc, 18, 84, w - 18, 350, 14, true);
+
+                    // 4. Card 2: Options & Behavior (Light Purple -> Light Blue gradient border!)
+                    ui_theme::draw_gradient_card(mem_dc, 18, 362, w - 18, 534, 14, false);
+
+                    // 5. Card 3: Updates & Version (Light Blue -> Light Purple gradient border)
+                    ui_theme::draw_gradient_card(mem_dc, 18, 546, w - 18, 620, 14, true);
+
+                    SetBkMode(mem_dc, TRANSPARENT as i32);
+
+                    let draw_label = |text: &str,
+                                      x_left: i32,
+                                      y_top: i32,
+                                      x_right: i32,
+                                      y_bot: i32,
+                                      font: HFONT,
+                                      color: u32,
+                                      rtl: bool| {
+                        SelectObject(mem_dc, font as *mut _);
+                        SetTextColor(mem_dc, color);
+                        let mut lrc = RECT {
+                            left: x_left,
+                            top: y_top,
+                            right: x_right,
+                            bottom: y_bot,
+                        };
+                        let flags = if rtl {
+                            DT_RIGHT | DT_RTLREADING | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX
+                        } else {
+                            DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX
+                        };
+                        let wtxt = to_wide(text);
+                        DrawTextW(mem_dc, wtxt.as_ptr(), -1, &mut lrc, flags);
+                    };
+
+                    // Section 1 Header
+                    draw_label(
+                        if is_en {
+                            "⌨️  Keyboard Shortcuts (Hotkeys)"
+                        } else {
+                            "⌨️  מקשי קיצור (Hotkeys)"
+                        },
+                        34,
+                        91,
+                        w - 34,
+                        113,
+                        state.hfont_section,
+                        TEXT_DEEP_PURPLE,
+                        is_rtl,
+                    );
+
+                    // Hotkey Row Labels
+                    draw_label(
+                        if is_en {
+                            "Primary Hotkey — Convert text + Switch keyboard layout:"
+                        } else {
+                            "מקש ראשי — המרת טקסט + החלפת שפת מקלדת:"
+                        },
+                        34,
+                        114,
+                        w - 34,
+                        134,
+                        state.hfont_bold,
+                        TEXT_SKY_BLUE,
+                        is_rtl,
+                    );
+
+                    draw_label(
+                        if is_en {
+                            "Secondary Hotkey — Convert text only (keep current layout):"
+                        } else {
+                            "מקש משני — המרת טקסט בלבד (ללא החלפת שפת מקלדת):"
+                        },
+                        34,
+                        172,
+                        w - 34,
+                        192,
+                        state.hfont_bold,
+                        TEXT_INDIGO,
+                        is_rtl,
+                    );
+
+                    draw_label(
+                        if is_en {
+                            "Google AI Search Hotkey — Open selected text in Google AI Mode:"
+                        } else {
+                            "מקש חיפוש ב-Google AI — פתיחת הטקסט במצב ה-AI של גוגל:"
+                        },
+                        34,
+                        230,
+                        w - 34,
+                        250,
+                        state.hfont_bold,
+                        TEXT_SKY_BLUE,
+                        is_rtl,
+                    );
+
+                    draw_label(
+                        if is_en {
+                            "Quick Translation Hotkey — Instant Hebrew <-> English via Google:"
+                        } else {
+                            "מקש תרגום מהיר בגוגל — תרגום מיידי בין עברית לאנגלית:"
+                        },
+                        34,
+                        288,
+                        w - 34,
+                        308,
+                        state.hfont_bold,
+                        TEXT_DEEP_PURPLE,
+                        is_rtl,
+                    );
+
+                    // Section 2 Header
+                    draw_label(
+                        if is_en {
+                            "⚙️  Options & Behavior"
+                        } else {
+                            "⚙️  אפשרויות והתנהגות"
+                        },
+                        34,
+                        372,
+                        w - 34,
+                        396,
+                        state.hfont_section,
+                        TEXT_DEEP_PURPLE,
+                        is_rtl,
+                    );
+
+                    // Section 3 Header & Version Info
+                    draw_label(
+                        if is_en {
+                            "🚀  Updates & Version Info"
+                        } else {
+                            "🚀  עדכונים ומידע על הגרסה"
+                        },
+                        34,
+                        554,
+                        365,
+                        578,
+                        state.hfont_section,
+                        TEXT_INDIGO,
+                        is_rtl,
+                    );
+
+                    let ver_str = if is_en {
+                        format!("Current Version: v{} (Windows Edition)", CURRENT_VERSION)
+                    } else {
+                        format!("גרסה נוכחית: v{} (מהדורת Windows)", CURRENT_VERSION)
+                    };
+                    draw_label(
+                        &ver_str,
+                        34,
+                        582,
+                        365,
+                        606,
+                        state.hfont_bold,
+                        TEXT_DARK_SLATE,
+                        is_rtl,
+                    );
+
+                    BitBlt(hdc, 0, 0, w, h, mem_dc, 0, 0, SRCCOPY);
+                    SelectObject(mem_dc, old_bmp);
+                    DeleteObject(mem_bmp as *mut _);
+                    DeleteDC(mem_dc);
+                }
+            }
+
+            unsafe {
+                EndPaint(hwnd, &ps);
+            }
+            return 0;
+        }
         WM_DRAWITEM => {
             let dis = unsafe { &*(lparam as *const DRAWITEMSTRUCT) };
             let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
-            let is_en = if !state_ptr.is_null() {
-                unsafe { (*state_ptr).is_english }
-            } else {
-                false
-            };
-
+            if state_ptr.is_null() {
+                return 0;
+            }
+            let state = unsafe { &*state_ptr };
+            let is_en = state.is_english;
+            let is_rtl = !is_en;
             let ctrl_id = dis.CtlID as usize;
             let is_pressed = (dis.itemState & ODS_SELECTED) != 0;
 
-            let (bg_color, border_color, text_color, text) = match ctrl_id {
-                ID_BTN_SAVE => {
-                    // Vibrant Indigo / Violet gradient button
-                    let bg = if is_pressed { rgb(79, 70, 229) } else { rgb(99, 102, 241) };
-                    let border = if is_pressed { rgb(67, 56, 202) } else { rgb(79, 70, 229) };
-                    let txt = if is_en { "Save & Apply" } else { "שמור והחל" };
-                    (bg, border, rgb(255, 255, 255), txt)
-                }
-                ID_BTN_RESTORE_DEFAULTS => {
-                    // Soft Lavender button
-                    let bg = if is_pressed { rgb(233, 213, 255) } else { rgb(243, 232, 255) };
-                    let border = if is_pressed { rgb(192, 132, 252) } else { rgb(216, 180, 254) };
-                    let txt = if is_en { "Restore Defaults" } else { "איפוס ברירת מחדל" };
-                    (bg, border, rgb(109, 40, 217), txt)
-                }
-                ID_BTN_CHECK_UPDATE => {
-                    // Soft Sky Blue button
-                    let bg = if is_pressed { rgb(186, 230, 253) } else { rgb(224, 242, 254) };
-                    let border = if is_pressed { rgb(125, 211, 252) } else { rgb(186, 230, 253) };
-                    let txt = if is_en { "Check for Updates" } else { "בדיקת עדכונים ב-GitHub" };
-                    (bg, border, rgb(2, 132, 199), txt)
-                }
-                ID_BTN_CANCEL => {
-                    // Clean Soft Slate button
-                    let bg = if is_pressed { rgb(226, 232, 240) } else { rgb(241, 245, 249) };
-                    let border = if is_pressed { rgb(203, 213, 225) } else { rgb(226, 232, 240) };
-                    let txt = if is_en { "Cancel" } else { "ביטול" };
-                    (bg, border, rgb(71, 85, 105), txt)
-                }
-                _ => return 0,
-            };
-
             unsafe {
-                let brush = CreateSolidBrush(bg_color);
-                let pen = CreatePen(PS_SOLID as i32, 1, border_color);
-                let old_brush = SelectObject(dis.hDC, brush as *mut _);
-                let old_pen = SelectObject(dis.hDC, pen as *mut _);
+                match ctrl_id {
+                    // Modifier Pills (Ctrl, Alt, Shift, Win)
+                    ID_CHK_PRI_CTRL | ID_CHK_SEC_CTRL | ID_CHK_AI_CTRL | ID_CHK_TRANS_CTRL => {
+                        ui_theme::draw_modifier_pill(
+                            dis.hDC,
+                            &dis.rcItem,
+                            "Ctrl",
+                            state.hfont_bold,
+                            state.is_ctrl_checked(ctrl_id),
+                            is_pressed,
+                        );
+                        return 1;
+                    }
+                    ID_CHK_PRI_ALT | ID_CHK_SEC_ALT | ID_CHK_AI_ALT | ID_CHK_TRANS_ALT => {
+                        ui_theme::draw_modifier_pill(
+                            dis.hDC,
+                            &dis.rcItem,
+                            "Alt",
+                            state.hfont_bold,
+                            state.is_ctrl_checked(ctrl_id),
+                            is_pressed,
+                        );
+                        return 1;
+                    }
+                    ID_CHK_PRI_SHIFT | ID_CHK_SEC_SHIFT | ID_CHK_AI_SHIFT | ID_CHK_TRANS_SHIFT => {
+                        ui_theme::draw_modifier_pill(
+                            dis.hDC,
+                            &dis.rcItem,
+                            "Shift",
+                            state.hfont_bold,
+                            state.is_ctrl_checked(ctrl_id),
+                            is_pressed,
+                        );
+                        return 1;
+                    }
+                    ID_CHK_PRI_WIN | ID_CHK_SEC_WIN | ID_CHK_AI_WIN | ID_CHK_TRANS_WIN => {
+                        ui_theme::draw_modifier_pill(
+                            dis.hDC,
+                            &dis.rcItem,
+                            "Win",
+                            state.hfont_bold,
+                            state.is_ctrl_checked(ctrl_id),
+                            is_pressed,
+                        );
+                        return 1;
+                    }
 
-                RoundRect(
-                    dis.hDC,
-                    dis.rcItem.left,
-                    dis.rcItem.top,
-                    dis.rcItem.right,
-                    dis.rcItem.bottom,
-                    8,
-                    8,
-                );
+                    // 4 Custom Gradient Behavior Checkbox Rows
+                    ID_CHK_AUTO_SWITCH => {
+                        let txt = if is_en {
+                            "Switch keyboard layout automatically on conversion (Primary hotkey)"
+                        } else {
+                            "החלף שפת מקלדת אוטומטית בעת המרת טקסט (עבור המקש הראשי)"
+                        };
+                        ui_theme::draw_custom_checkbox_row(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_body,
+                            state.auto_switch_layout,
+                            is_rtl,
+                        );
+                        return 1;
+                    }
+                    ID_CHK_AUTO_SELECT_LINE => {
+                        let txt = if is_en {
+                            "Auto-select current line if no text is highlighted"
+                        } else {
+                            "סמן אוטומטית את השורה הנוכחית אם לא נבחר טקסט"
+                        };
+                        ui_theme::draw_custom_checkbox_row(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_body,
+                            state.auto_select_line,
+                            is_rtl,
+                        );
+                        return 1;
+                    }
+                    ID_CHK_START_WINDOWS => {
+                        let txt = if is_en {
+                            "Start LangSwitch automatically when Windows starts"
+                        } else {
+                            "הפעל את LangSwitch אוטומטית עם הפעלת Windows"
+                        };
+                        ui_theme::draw_custom_checkbox_row(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_body,
+                            state.start_with_windows,
+                            is_rtl,
+                        );
+                        return 1;
+                    }
+                    ID_CHK_RESTORE_CLIPBOARD => {
+                        let txt = if is_en {
+                            "Restore previous clipboard contents after conversion"
+                        } else {
+                            "שחזר את תוכן לוח הגזירים המקורי לאחר ההמרה"
+                        };
+                        ui_theme::draw_custom_checkbox_row(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_body,
+                            state.restore_clipboard,
+                            is_rtl,
+                        );
+                        return 1;
+                    }
 
-                SelectObject(dis.hDC, old_brush);
-                SelectObject(dis.hDC, old_pen);
-                DeleteObject(brush as *mut _);
-                DeleteObject(pen as *mut _);
-
-                SetBkMode(dis.hDC, TRANSPARENT as i32);
-                SetTextColor(dis.hDC, text_color);
-
-                if !state_ptr.is_null() {
-                    let state = &*state_ptr;
-                    SelectObject(dis.hDC, state.hfont_bold as *mut _);
+                    // Action Buttons
+                    ID_BTN_SAVE => {
+                        let txt = if is_en {
+                            "💾  Save & Apply"
+                        } else {
+                            "💾  שמור והחל"
+                        };
+                        ui_theme::draw_gradient_button(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_bold,
+                            ButtonStyle::PrimaryGradient,
+                            is_pressed,
+                        );
+                        return 1;
+                    }
+                    ID_BTN_RESTORE_DEFAULTS => {
+                        let txt = if is_en {
+                            "↺  Restore Defaults"
+                        } else {
+                            "↺  איפוס לברירת מחדל"
+                        };
+                        ui_theme::draw_gradient_button(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_bold,
+                            ButtonStyle::LightPurple,
+                            is_pressed,
+                        );
+                        return 1;
+                    }
+                    ID_BTN_CHECK_UPDATE => {
+                        let txt = if is_en {
+                            "🔍  Check for Updates"
+                        } else {
+                            "🔍  בדיקת עדכונים ב-GitHub"
+                        };
+                        ui_theme::draw_gradient_button(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_bold,
+                            ButtonStyle::LightBlue,
+                            is_pressed,
+                        );
+                        return 1;
+                    }
+                    ID_BTN_CANCEL => {
+                        let txt = if is_en { "Cancel" } else { "ביטול" };
+                        ui_theme::draw_gradient_button(
+                            dis.hDC,
+                            &dis.rcItem,
+                            txt,
+                            state.hfont_bold,
+                            ButtonStyle::Subtle,
+                            is_pressed,
+                        );
+                        return 1;
+                    }
+                    _ => return 0,
                 }
-
-                let mut rc = dis.rcItem;
-                let wtext = to_wide(text);
-                DrawTextW(
-                    dis.hDC,
-                    wtext.as_ptr(),
-                    -1,
-                    &mut rc,
-                    DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-                );
             }
-            return 1;
         }
         WM_COMMAND => {
             let ctrl_id = (wparam & 0xFFFF) as usize;
             let notif = ((wparam >> 16) & 0xFFFF) as u32;
+            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
 
-            // Handle combobox selection changes
-            if notif == 1 {
-                // CBN_SELCHANGE
-                let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
-                if !state_ptr.is_null() {
-                    let state = unsafe { &mut *state_ptr };
-                    if ctrl_id == ID_CMB_PRI_KEY {
-                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_PRI_KEY as i32) };
-                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
-                        if idx >= 0 {
-                            let modifiers = unsafe { get_modifiers(hwnd, 0) };
-                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
-                                .iter()
-                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
-                                .collect();
-                            if let Some((_, vk)) = valid.get(idx as usize) {
-                                state.pri_vk = *vk;
-                            }
+            // Handle combobox selection changes (CBN_SELCHANGE == 1)
+            if notif == 1 && !state_ptr.is_null() {
+                let state = unsafe { &mut *state_ptr };
+                if ctrl_id == ID_CMB_PRI_KEY {
+                    let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_PRI_KEY as i32) };
+                    let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                    if idx >= 0 {
+                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                            .iter()
+                            .filter(|(_, vk)| !is_windows_conflict(state.pri_mods, *vk))
+                            .collect();
+                        if let Some((_, vk)) = valid.get(idx as usize) {
+                            state.pri_vk = *vk;
                         }
-                    } else if ctrl_id == ID_CMB_SEC_KEY {
-                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_SEC_KEY as i32) };
-                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
-                        if idx >= 0 {
-                            let modifiers = unsafe { get_modifiers(hwnd, 1) };
-                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
-                                .iter()
-                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
-                                .collect();
-                            if let Some((_, vk)) = valid.get(idx as usize) {
-                                state.sec_vk = *vk;
-                            }
+                    }
+                } else if ctrl_id == ID_CMB_SEC_KEY {
+                    let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_SEC_KEY as i32) };
+                    let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                    if idx >= 0 {
+                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                            .iter()
+                            .filter(|(_, vk)| !is_windows_conflict(state.sec_mods, *vk))
+                            .collect();
+                        if let Some((_, vk)) = valid.get(idx as usize) {
+                            state.sec_vk = *vk;
                         }
-                    } else if ctrl_id == ID_CMB_AI_KEY {
-                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_AI_KEY as i32) };
-                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
-                        if idx >= 0 {
-                            let modifiers = unsafe { get_modifiers(hwnd, 2) };
-                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
-                                .iter()
-                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
-                                .collect();
-                            if let Some((_, vk)) = valid.get(idx as usize) {
-                                state.ai_vk = *vk;
-                            }
+                    }
+                } else if ctrl_id == ID_CMB_AI_KEY {
+                    let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_AI_KEY as i32) };
+                    let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                    if idx >= 0 {
+                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                            .iter()
+                            .filter(|(_, vk)| !is_windows_conflict(state.ai_mods, *vk))
+                            .collect();
+                        if let Some((_, vk)) = valid.get(idx as usize) {
+                            state.ai_vk = *vk;
                         }
-                    } else if ctrl_id == ID_CMB_TRANS_KEY {
-                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_TRANS_KEY as i32) };
-                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
-                        if idx >= 0 {
-                            let modifiers = unsafe { get_modifiers(hwnd, 3) };
-                            let valid: Vec<_> = ALL_KEYBOARD_KEYS
-                                .iter()
-                                .filter(|(_, vk)| !is_windows_conflict(modifiers, *vk))
-                                .collect();
-                            if let Some((_, vk)) = valid.get(idx as usize) {
-                                state.trans_vk = *vk;
-                            }
+                    }
+                } else if ctrl_id == ID_CMB_TRANS_KEY {
+                    let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_TRANS_KEY as i32) };
+                    let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as isize };
+                    if idx >= 0 {
+                        let valid: Vec<_> = ALL_KEYBOARD_KEYS
+                            .iter()
+                            .filter(|(_, vk)| !is_windows_conflict(state.trans_mods, *vk))
+                            .collect();
+                        if let Some((_, vk)) = valid.get(idx as usize) {
+                            state.trans_vk = *vk;
                         }
-                    } else if ctrl_id == ID_CMB_LANG {
-                        let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_LANG as i32) };
-                        let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize };
-                        state.is_english = idx == 1;
-                        unsafe {
-                            update_ui_language(hwnd, state.is_english);
-                        }
+                    }
+                } else if ctrl_id == ID_CMB_LANG {
+                    let ctrl = unsafe { GetDlgItem(hwnd, ID_CMB_LANG as i32) };
+                    let idx = unsafe { SendMessageW(ctrl, CB_GETCURSEL, 0, 0) as usize };
+                    state.is_english = idx == 1;
+                    unsafe {
+                        update_ui_language(hwnd, state.is_english);
                     }
                 }
             }
 
-            match ctrl_id {
-                // Modifier checkboxes toggled -> refresh combobox in real time
-                ID_CHK_PRI_CTRL | ID_CHK_PRI_ALT | ID_CHK_PRI_SHIFT | ID_CHK_PRI_WIN => unsafe {
-                    refresh_hotkey_combobox(hwnd, 0);
-                    return 0;
-                },
-                ID_CHK_SEC_CTRL | ID_CHK_SEC_ALT | ID_CHK_SEC_SHIFT | ID_CHK_SEC_WIN => unsafe {
-                    refresh_hotkey_combobox(hwnd, 1);
-                    return 0;
-                },
-                ID_CHK_AI_CTRL | ID_CHK_AI_ALT | ID_CHK_AI_SHIFT | ID_CHK_AI_WIN => unsafe {
-                    refresh_hotkey_combobox(hwnd, 2);
-                    return 0;
-                },
-                ID_CHK_TRANS_CTRL | ID_CHK_TRANS_ALT | ID_CHK_TRANS_SHIFT | ID_CHK_TRANS_WIN => unsafe {
-                    refresh_hotkey_combobox(hwnd, 3);
-                    return 0;
-                },
-                ID_BTN_RESTORE_DEFAULTS => unsafe {
-                    handle_restore_defaults(hwnd);
-                    return 0;
-                },
-                ID_BTN_CANCEL => unsafe {
-                    DestroyWindow(hwnd);
-                    return 0;
-                },
-                ID_BTN_SAVE => unsafe {
-                    save_and_close(hwnd);
-                    return 0;
-                },
-                ID_BTN_CHECK_UPDATE => unsafe {
-                    trigger_check_update(hwnd);
-                    return 0;
-                },
-                _ => {}
+            // Handle button / pill / checkbox clicks (BN_CLICKED == 0)
+            if notif == 0 && !state_ptr.is_null() {
+                let state = unsafe { &mut *state_ptr };
+                match ctrl_id {
+                    ID_CHK_PRI_CTRL | ID_CHK_PRI_ALT | ID_CHK_PRI_SHIFT | ID_CHK_PRI_WIN => unsafe {
+                        state.toggle_ctrl(ctrl_id);
+                        let ctrl = GetDlgItem(hwnd, ctrl_id as i32);
+                        InvalidateRect(ctrl, ptr::null(), 0);
+                        refresh_hotkey_combobox(hwnd, 0);
+                        return 0;
+                    },
+                    ID_CHK_SEC_CTRL | ID_CHK_SEC_ALT | ID_CHK_SEC_SHIFT | ID_CHK_SEC_WIN => unsafe {
+                        state.toggle_ctrl(ctrl_id);
+                        let ctrl = GetDlgItem(hwnd, ctrl_id as i32);
+                        InvalidateRect(ctrl, ptr::null(), 0);
+                        refresh_hotkey_combobox(hwnd, 1);
+                        return 0;
+                    },
+                    ID_CHK_AI_CTRL | ID_CHK_AI_ALT | ID_CHK_AI_SHIFT | ID_CHK_AI_WIN => unsafe {
+                        state.toggle_ctrl(ctrl_id);
+                        let ctrl = GetDlgItem(hwnd, ctrl_id as i32);
+                        InvalidateRect(ctrl, ptr::null(), 0);
+                        refresh_hotkey_combobox(hwnd, 2);
+                        return 0;
+                    },
+                    ID_CHK_TRANS_CTRL | ID_CHK_TRANS_ALT | ID_CHK_TRANS_SHIFT
+                    | ID_CHK_TRANS_WIN => unsafe {
+                        state.toggle_ctrl(ctrl_id);
+                        let ctrl = GetDlgItem(hwnd, ctrl_id as i32);
+                        InvalidateRect(ctrl, ptr::null(), 0);
+                        refresh_hotkey_combobox(hwnd, 3);
+                        return 0;
+                    },
+                    ID_CHK_AUTO_SWITCH
+                    | ID_CHK_AUTO_SELECT_LINE
+                    | ID_CHK_START_WINDOWS
+                    | ID_CHK_RESTORE_CLIPBOARD => unsafe {
+                        state.toggle_ctrl(ctrl_id);
+                        let ctrl = GetDlgItem(hwnd, ctrl_id as i32);
+                        InvalidateRect(ctrl, ptr::null(), 0);
+                        return 0;
+                    },
+                    ID_BTN_RESTORE_DEFAULTS => unsafe {
+                        handle_restore_defaults(hwnd);
+                        return 0;
+                    },
+                    ID_BTN_CANCEL => unsafe {
+                        DestroyWindow(hwnd);
+                        return 0;
+                    },
+                    ID_BTN_SAVE => unsafe {
+                        save_and_close(hwnd);
+                        return 0;
+                    },
+                    ID_BTN_CHECK_UPDATE => unsafe {
+                        trigger_check_update(hwnd);
+                        return 0;
+                    },
+                    _ => {}
+                }
             }
             return 0;
         }
-        WM_CTLCOLORDLG => {
-            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
-            if !state_ptr.is_null() {
-                let state = unsafe { &*state_ptr };
-                return state.bg_brush as LRESULT;
-            }
-        }
-        WM_CTLCOLORSTATIC => {
-            let hdc = wparam as HDC;
-            let ctrl_id = unsafe { GetDlgCtrlID(lparam as HWND) } as usize;
-            unsafe {
-                SetBkMode(hdc, TRANSPARENT as i32);
-                // Creative light blue & purple palette for headings and labels
-                let text_color = match ctrl_id {
-                    ID_LBL_HEADER_TITLE => rgb(109, 40, 217), // Deep Violet
-                    ID_LBL_HEADER_SUB => rgb(67, 56, 202),   // Slate Indigo
-                    ID_LBL_GRP_HOTKEYS | ID_LBL_GRP_OPTIONS => rgb(109, 40, 217), // Royal Violet
-                    ID_LBL_PRI_TITLE => rgb(2, 132, 199),    // Sky Blue
-                    ID_LBL_SEC_TITLE => rgb(79, 70, 229),    // Indigo
-                    ID_LBL_AI_TITLE => rgb(2, 132, 199),     // Sky Blue
-                    ID_LBL_TRANS_TITLE => rgb(124, 58, 237), // Purple/Violet
-                    ID_LBL_GRP_UPDATES => rgb(71, 85, 105),  // Slate Blue
-                    ID_LBL_VERSION => rgb(109, 40, 217),     // Deep Violet
-                    ID_LBL_LANG => rgb(67, 56, 202),        // Slate Indigo
-                    _ => rgb(30, 41, 59),                    // Slate 800
-                };
-                SetTextColor(hdc, text_color);
-            }
-            let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
-            if !state_ptr.is_null() {
-                let state = unsafe { &*state_ptr };
-                return state.bg_brush as LRESULT;
-            }
-        }
-        WM_CTLCOLORBTN => {
+        WM_CTLCOLORDLG | WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLORLISTBOX => {
             let hdc = wparam as HDC;
             unsafe {
                 SetBkMode(hdc, TRANSPARENT as i32);
-                SetTextColor(hdc, rgb(30, 41, 59));
+                SetTextColor(hdc, TEXT_DARK_SLATE);
             }
             let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
             if !state_ptr.is_null() {
                 let state = unsafe { &*state_ptr };
-                return state.bg_brush as LRESULT;
+                return state.card_brush as LRESULT;
             }
         }
         WM_CLOSE => unsafe {
@@ -1216,21 +1263,12 @@ unsafe extern "system" fn settings_wnd_proc(
             let state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState;
             if !state_ptr.is_null() {
                 let state = Box::from_raw(state_ptr);
-                if !state.hfont_body.is_null() {
-                    DeleteObject(state.hfont_body as *mut _);
-                }
-                if !state.hfont_bold.is_null() {
-                    DeleteObject(state.hfont_bold as *mut _);
-                }
-                if !state.hfont_title.is_null() {
-                    DeleteObject(state.hfont_title as *mut _);
-                }
-                if !state.hfont_sub.is_null() {
-                    DeleteObject(state.hfont_sub as *mut _);
-                }
-                if !state.bg_brush.is_null() {
-                    DeleteObject(state.bg_brush as *mut _);
-                }
+                DeleteObject(state.hfont_body as *mut _);
+                DeleteObject(state.hfont_bold as *mut _);
+                DeleteObject(state.hfont_section as *mut _);
+                DeleteObject(state.hfont_title as *mut _);
+                DeleteObject(state.hfont_sub as *mut _);
+                DeleteObject(state.card_brush as *mut _);
             }
             PostQuitMessage(0);
             return 0;
@@ -1241,188 +1279,89 @@ unsafe extern "system" fn settings_wnd_proc(
 }
 
 unsafe fn update_ui_language(hwnd: HWND, is_en: bool) {
-    let set_text = |id: usize, text: &str| unsafe {
-        let ctrl = GetDlgItem(hwnd, id as i32);
-        let w = to_wide(text);
-        SetWindowTextW(ctrl, w.as_ptr());
+    let title = if is_en {
+        "LangSwitch - Settings"
+    } else {
+        "LangSwitch - הגדרות"
     };
-
-    let title = if is_en { "LangSwitch - Settings" } else { "LangSwitch - הגדרות" };
     let w_title = to_wide(title);
     unsafe {
         SetWindowTextW(hwnd, w_title.as_ptr());
-    }
+        let cmb_lang = GetDlgItem(hwnd, ID_CMB_LANG as i32);
+        let lang_x = if is_en { 442 } else { 32 };
+        SetWindowPos(cmb_lang, ptr::null_mut(), lang_x, 30, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        InvalidateRect(hwnd, ptr::null(), 1);
 
-    set_text(ID_LBL_HEADER_TITLE, if is_en { "⚡ LangSwitch - Settings" } else { "⚡ הגדרות LangSwitch" });
-    set_text(ID_LBL_HEADER_SUB, if is_en { "Hebrew ↔ English Instant Layout Switcher" } else { "המרת שפה מהירה בין עברית לאנגלית" });
-    set_text(ID_LBL_LANG, if is_en { "Language / שפה:" } else { "\u{200F}שפה / Language:" });
-    set_text(ID_LBL_GRP_HOTKEYS, if is_en { " Hotkeys " } else { "\u{200F} מקשי קיצור (Hotkeys) " });
-    set_text(ID_LBL_PRI_TITLE, if is_en { "Primary Hotkey (Convert text + Switch input layout):" } else { "\u{200F}מקש ראשי (המרה + החלפת שפת מקלדת):" });
-    set_text(ID_LBL_SEC_TITLE, if is_en { "Secondary Hotkey (Convert text only, no layout switch):" } else { "\u{200F}מקש משני (המרה בלבד ללא החלפת מקלדת):" });
-    set_text(ID_LBL_AI_TITLE, if is_en { "Google AI Search Hotkey (AI Mode):" } else { "\u{200F}חיפוש גוגל במצב AI (Google AI Search):" });
-    set_text(ID_LBL_TRANS_TITLE, if is_en { "Quick Translation Hotkey (Hebrew ↔ English via Google):" } else { "\u{200F}תרגום מהיר בגוגל (Google Quick Translate):" });
-    set_text(ID_LBL_GRP_OPTIONS, if is_en { " Options & Behavior " } else { "\u{200F} אפשרויות והתנהגות " });
-    set_text(ID_CHK_AUTO_SWITCH, if is_en { "Switch keyboard layout automatically on conversion (Primary key)" } else { "\u{200F}החלף שפת מקלדת אוטומטית בהמרה (עבור המקש הראשי)" });
-    set_text(ID_CHK_AUTO_SELECT_LINE, if is_en { "Auto-select current line if no text is selected" } else { "\u{200F}סמן אוטומטית את השורה הנוכחית אם לא סומן טקסט" });
-    set_text(ID_CHK_START_WINDOWS, if is_en { "Start automatically on Windows login" } else { "\u{200F}הפעל אוטומטית עם כניסה למערכת Windows" });
-    set_text(ID_CHK_RESTORE_CLIPBOARD, if is_en { "Restore original clipboard contents after conversion" } else { "\u{200F}שחזר לוח גזירים (Clipboard) מקורי לאחר ההמרה" });
-    set_text(ID_LBL_GRP_UPDATES, if is_en { " Updates & Info " } else { "\u{200F} עדכונים ומידע " });
-    set_text(ID_LBL_VERSION, &if is_en { format!("Current Version: v{}", CURRENT_VERSION) } else { format!("\u{200F}גרסה נוכחית: v{}", CURRENT_VERSION) });
-
-    // Request redraw for owner-drawn buttons
-    unsafe {
-        let btn_check = GetDlgItem(hwnd, ID_BTN_CHECK_UPDATE as i32);
-        let btn_defaults = GetDlgItem(hwnd, ID_BTN_RESTORE_DEFAULTS as i32);
-        let btn_save = GetDlgItem(hwnd, ID_BTN_SAVE as i32);
-        let btn_cancel = GetDlgItem(hwnd, ID_BTN_CANCEL as i32);
-        InvalidateRect(btn_check, ptr::null(), 1);
-        InvalidateRect(btn_defaults, ptr::null(), 1);
-        InvalidateRect(btn_save, ptr::null(), 1);
-        InvalidateRect(btn_cancel, ptr::null(), 1);
+        let ids = [
+            ID_CHK_AUTO_SWITCH,
+            ID_CHK_AUTO_SELECT_LINE,
+            ID_CHK_START_WINDOWS,
+            ID_CHK_RESTORE_CLIPBOARD,
+            ID_BTN_CHECK_UPDATE,
+            ID_BTN_RESTORE_DEFAULTS,
+            ID_BTN_SAVE,
+            ID_BTN_CANCEL,
+        ];
+        for id in ids {
+            let ctrl = GetDlgItem(hwnd, id as i32);
+            InvalidateRect(ctrl, ptr::null(), 1);
+        }
     }
 }
 
 unsafe fn handle_restore_defaults(hwnd: HWND) {
     let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SettingsState };
-    let is_en = if !state_ptr.is_null() {
-        unsafe { (*state_ptr).is_english }
+    if state_ptr.is_null() {
+        return;
+    }
+    let is_en = unsafe { (*state_ptr).is_english };
+
+    let res = if is_en {
+        ui_theme::show_modern_dialog(
+            "Restore Default Settings",
+            "Reset all hotkeys and preferences",
+            "Are you sure you want to reset all LangSwitch hotkeys and behavior options back to their recommended default values?",
+            "Yes, Restore Defaults",
+            Some("Cancel"),
+            false,
+        )
     } else {
-        false
+        ui_theme::show_modern_dialog(
+            "איפוס לברירת מחדל",
+            "שחזור הגדרות ומקשי קיצור מומלצים",
+            "האם אתה בטוח שברצונך לאפס את כל מקשי הקיצור והאפשרויות של LangSwitch לערכי ברירת המחדל המומלצים?",
+            "כן, אפס הגדרות",
+            Some("ביטול"),
+            true,
+        )
     };
 
-    let msg = if is_en {
-        "Are you sure you want to reset all settings to default values?"
-    } else {
-        "האם אתה בטוח שברצונך לאפס את כל ההגדרות לברירת המחדל?"
-    };
-    let title = if is_en { "Restore Defaults" } else { "איפוס לברירת מחדל" };
-
-    let wmsg = to_wide(msg);
-    let wtitle = to_wide(title);
-    let answer = unsafe {
-        MessageBoxW(hwnd, wmsg.as_ptr(), wtitle.as_ptr(), MB_YESNO | MB_ICONQUESTION)
-    };
-
-    if answer != IDYES {
+    if res != DialogResult::Primary {
         return;
     }
 
-    // Reset controls to defaults
-    let set_check = |id: usize, checked: bool| unsafe {
-        let ctrl = GetDlgItem(hwnd, id as i32);
-        SendMessageW(ctrl, BM_SETCHECK, if checked { BST_CHECKED } else { BST_UNCHECKED } as WPARAM, 0);
-    };
+    let state = unsafe { &mut *state_ptr };
+    state.pri_mods = 0;
+    state.pri_vk = VK_F10;
+    state.sec_mods = MOD_CONTROL;
+    state.sec_vk = VK_F10;
+    state.ai_mods = MOD_SHIFT | MOD_WIN;
+    state.ai_vk = 0x47; // 'G'
+    state.trans_mods = MOD_CONTROL | MOD_SHIFT;
+    state.trans_vk = 0x54; // 'T'
 
-    // Primary: F10, no modifiers
-    set_check(ID_CHK_PRI_CTRL, false);
-    set_check(ID_CHK_PRI_ALT, false);
-    set_check(ID_CHK_PRI_SHIFT, false);
-    set_check(ID_CHK_PRI_WIN, false);
-
-    // Secondary: Ctrl + F10
-    set_check(ID_CHK_SEC_CTRL, true);
-    set_check(ID_CHK_SEC_ALT, false);
-    set_check(ID_CHK_SEC_SHIFT, false);
-    set_check(ID_CHK_SEC_WIN, false);
-
-    // AI Search: Shift + Win + G
-    set_check(ID_CHK_AI_CTRL, false);
-    set_check(ID_CHK_AI_ALT, false);
-    set_check(ID_CHK_AI_SHIFT, true);
-    set_check(ID_CHK_AI_WIN, true);
-
-    // Translation: Ctrl + Shift + T
-    set_check(ID_CHK_TRANS_CTRL, true);
-    set_check(ID_CHK_TRANS_ALT, false);
-    set_check(ID_CHK_TRANS_SHIFT, true);
-    set_check(ID_CHK_TRANS_WIN, false);
-
-    // Options defaults
-    set_check(ID_CHK_AUTO_SWITCH, true);
-    set_check(ID_CHK_AUTO_SELECT_LINE, true);
-    set_check(ID_CHK_START_WINDOWS, false);
-    set_check(ID_CHK_RESTORE_CLIPBOARD, false);
-
-    if !state_ptr.is_null() {
-        unsafe {
-            (*state_ptr).pri_vk = VK_F10;
-            (*state_ptr).sec_vk = VK_F10;
-            (*state_ptr).ai_vk = 0x47; // 'G'
-            (*state_ptr).trans_vk = 0x54; // 'T'
-        }
-    }
+    state.auto_switch_layout = true;
+    state.auto_select_line = true;
+    state.start_with_windows = false;
+    state.restore_clipboard = false;
 
     unsafe {
-        populate_combobox(hwnd, ID_CMB_PRI_KEY, 0, VK_F10);
-        populate_combobox(hwnd, ID_CMB_SEC_KEY, MOD_CONTROL, VK_F10);
-        populate_combobox(hwnd, ID_CMB_AI_KEY, MOD_SHIFT | MOD_WIN, 0x47);
-        populate_combobox(hwnd, ID_CMB_TRANS_KEY, MOD_CONTROL | MOD_SHIFT, 0x54);
+        populate_combobox(hwnd, ID_CMB_PRI_KEY, state.pri_mods, state.pri_vk);
+        populate_combobox(hwnd, ID_CMB_SEC_KEY, state.sec_mods, state.sec_vk);
+        populate_combobox(hwnd, ID_CMB_AI_KEY, state.ai_mods, state.ai_vk);
+        populate_combobox(hwnd, ID_CMB_TRANS_KEY, state.trans_mods, state.trans_vk);
+        InvalidateRect(hwnd, ptr::null(), 1);
     }
-}
-
-unsafe fn get_modifiers(hwnd: HWND, target: u8) -> u32 {
-    let is_checked = |id: usize| -> bool {
-        unsafe {
-            let ctrl = GetDlgItem(hwnd, id as i32);
-            SendMessageW(ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED
-        }
-    };
-
-    let mut mod_mask = 0;
-    if target == 0 {
-        if is_checked(ID_CHK_PRI_CTRL) {
-            mod_mask |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_PRI_ALT) {
-            mod_mask |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_PRI_SHIFT) {
-            mod_mask |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_PRI_WIN) {
-            mod_mask |= MOD_WIN;
-        }
-    } else if target == 1 {
-        if is_checked(ID_CHK_SEC_CTRL) {
-            mod_mask |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_SEC_ALT) {
-            mod_mask |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_SEC_SHIFT) {
-            mod_mask |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_SEC_WIN) {
-            mod_mask |= MOD_WIN;
-        }
-    } else if target == 2 {
-        if is_checked(ID_CHK_AI_CTRL) {
-            mod_mask |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_AI_ALT) {
-            mod_mask |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_AI_SHIFT) {
-            mod_mask |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_AI_WIN) {
-            mod_mask |= MOD_WIN;
-        }
-    } else {
-        if is_checked(ID_CHK_TRANS_CTRL) {
-            mod_mask |= MOD_CONTROL;
-        }
-        if is_checked(ID_CHK_TRANS_ALT) {
-            mod_mask |= MOD_ALT;
-        }
-        if is_checked(ID_CHK_TRANS_SHIFT) {
-            mod_mask |= MOD_SHIFT;
-        }
-        if is_checked(ID_CHK_TRANS_WIN) {
-            mod_mask |= MOD_WIN;
-        }
-    }
-    mod_mask
 }
 
 unsafe fn trigger_check_update(hwnd: HWND) {
@@ -1444,26 +1383,32 @@ unsafe fn trigger_check_update(hwnd: HWND) {
                     url,
                     notes,
                 } => {
-                    let msg = if is_en {
-                        format!(
-                            "A new version is available: {}\n\nRelease notes:\n{}\n\nWould you like to open the GitHub download page?",
-                            version, notes
+                    let answer = if is_en {
+                        ui_theme::show_modern_dialog(
+                            "New Update Available! 🎉",
+                            &format!("LangSwitch {} is ready to download", version),
+                            &format!(
+                                "A new version ({}) is available on GitHub!\n\nWhat's new:\n{}\n\nWould you like to open the download page now?",
+                                version, notes
+                            ),
+                            "Download Update 🚀",
+                            Some("Later"),
+                            false,
                         )
                     } else {
-                        format!(
-                            "גרסה חדשה זמינה: {}\n\nשינויים:\n{}\n\nהאם ברצונך לפתוח את דף ההורדה ב-GitHub?",
-                            version, notes
+                        ui_theme::show_modern_dialog(
+                            "עדכון חדש זמין! 🎉",
+                            &format!("גרסה {} זמינה כעת להורדה", version),
+                            &format!(
+                                "גרסה חדשה ({}) זמינה ב-GitHub!\n\nמה חדש:\n{}\n\nהאם ברצונך לפתוח את עמוד ההורדה כעת?",
+                                version, notes
+                            ),
+                            "הורד עדכון 🚀",
+                            Some("מאוחר יותר"),
+                            true,
                         )
                     };
-                    let wmsg = to_wide(&msg);
-                    let wtitle = if is_en { to_wide("Update Available!") } else { to_wide("עדכון חדש זמין!") };
-                    let answer = MessageBoxW(
-                        target_hwnd,
-                        wmsg.as_ptr(),
-                        wtitle.as_ptr(),
-                        MB_YESNO | MB_ICONINFORMATION,
-                    );
-                    if answer == IDYES {
+                    if answer == DialogResult::Primary {
                         let wurl = to_wide(&url);
                         let wopen = to_wide("open");
                         ShellExecuteW(
@@ -1477,49 +1422,73 @@ unsafe fn trigger_check_update(hwnd: HWND) {
                     }
                 }
                 UpdateCheckResult::UpToDate => {
-                    let msg = if is_en {
-                        format!("LangSwitch is up to date!\nYou are running the latest version (v{}).", CURRENT_VERSION)
+                    if is_en {
+                        ui_theme::show_modern_dialog(
+                            "LangSwitch is Up to Date ⚡",
+                            &format!("Running latest version v{}", CURRENT_VERSION),
+                            &format!(
+                                "You are running the latest version of LangSwitch (v{}).\nNo updates are needed right now.",
+                                CURRENT_VERSION
+                            ),
+                            "Awesome!",
+                            None,
+                            false,
+                        );
                     } else {
-                        format!("התוכנה מעודכנת!\nאתה משתמש בגרסה האחרונה (v{}).", CURRENT_VERSION)
-                    };
-                    let wmsg = to_wide(&msg);
-                    let wtitle = if is_en { to_wide("Update Check") } else { to_wide("בדיקת עדכונים") };
-                    MessageBoxW(
-                        target_hwnd,
-                        wmsg.as_ptr(),
-                        wtitle.as_ptr(),
-                        MB_OK | MB_ICONINFORMATION,
-                    );
+                        ui_theme::show_modern_dialog(
+                            "התוכנה מעודכנת! ⚡",
+                            &format!("אתה משתמש בגרסה העדכנית ביותר v{}", CURRENT_VERSION),
+                            &format!(
+                                "התוכנה מעודכנת לגרסה האחרונה (v{}).\nאין צורך בעדכונים נוספים כרגע.",
+                                CURRENT_VERSION
+                            ),
+                            "מעולה!",
+                            None,
+                            true,
+                        );
+                    }
                 }
                 UpdateCheckResult::NoReleasesFound => {
-                    let msg = if is_en {
-                        "No releases found on GitHub yet."
+                    if is_en {
+                        ui_theme::show_modern_dialog(
+                            "Update Check",
+                            "GitHub Releases",
+                            "No releases were found on GitHub yet.",
+                            "OK",
+                            None,
+                            false,
+                        );
                     } else {
-                        "לא נמצאו שחרורים (Releases) ב-GitHub עבור פרויקט זה עדיין."
-                    };
-                    let wmsg = to_wide(msg);
-                    let wtitle = if is_en { to_wide("Update Check") } else { to_wide("בדיקת עדכונים") };
-                    MessageBoxW(
-                        target_hwnd,
-                        wmsg.as_ptr(),
-                        wtitle.as_ptr(),
-                        MB_OK | MB_ICONINFORMATION,
-                    );
+                        ui_theme::show_modern_dialog(
+                            "בדיקת עדכונים",
+                            "שחרורים ב-GitHub",
+                            "לא נמצאו גרסאות שחרור (Releases) ב-GitHub עדיין.",
+                            "אישור",
+                            None,
+                            true,
+                        );
+                    }
                 }
                 UpdateCheckResult::Error(e) => {
-                    let msg = if is_en {
-                        format!("An error occurred while checking for updates:\n{}", e)
+                    if is_en {
+                        ui_theme::show_modern_dialog(
+                            "Update Check Error",
+                            "Could not connect to GitHub",
+                            &format!("An error occurred while checking for updates:\n{}", e),
+                            "Close",
+                            None,
+                            false,
+                        );
                     } else {
-                        format!("אירעה שגיאה בבדיקת העדכון:\n{}", e)
-                    };
-                    let wmsg = to_wide(&msg);
-                    let wtitle = if is_en { to_wide("Update Error") } else { to_wide("שגיאת עדכון") };
-                    MessageBoxW(
-                        target_hwnd,
-                        wmsg.as_ptr(),
-                        wtitle.as_ptr(),
-                        MB_OK | MB_ICONERROR,
-                    );
+                        ui_theme::show_modern_dialog(
+                            "שגיאה בבדיקת עדכונים",
+                            "לא ניתן להתחבר ל-GitHub",
+                            &format!("אירעה שגיאה בעת בדיקת העדכונים:\n{}", e),
+                            "סגור",
+                            None,
+                            true,
+                        );
+                    }
                 }
             }
         }
@@ -1538,18 +1507,6 @@ unsafe fn save_and_close(hwnd: HWND) {
 
     let state = unsafe { &mut *state_ptr };
 
-    let is_checked = |id: usize| -> bool {
-        unsafe {
-            let ctrl = GetDlgItem(hwnd, id as i32);
-            SendMessageW(ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED
-        }
-    };
-
-    let pri_mod = unsafe { get_modifiers(hwnd, 0) };
-    let sec_mod = unsafe { get_modifiers(hwnd, 1) };
-    let ai_mod = unsafe { get_modifiers(hwnd, 2) };
-    let trans_mod = unsafe { get_modifiers(hwnd, 3) };
-
     let get_combo_vk = |id: usize, modifiers: u32, default_vk: u32| -> u32 {
         unsafe {
             let ctrl = GetDlgItem(hwnd, id as i32);
@@ -1567,29 +1524,33 @@ unsafe fn save_and_close(hwnd: HWND) {
         }
     };
 
-    let ui_lang = if state.is_english { "en".to_string() } else { "he".to_string() };
+    let ui_lang = if state.is_english {
+        "en".to_string()
+    } else {
+        "he".to_string()
+    };
 
     let updated_config = AppConfig {
         hotkey_primary: HotkeyConfig {
-            modifiers: pri_mod,
-            vk: get_combo_vk(ID_CMB_PRI_KEY, pri_mod, state.pri_vk),
+            modifiers: state.pri_mods,
+            vk: get_combo_vk(ID_CMB_PRI_KEY, state.pri_mods, state.pri_vk),
         },
         hotkey_secondary: HotkeyConfig {
-            modifiers: sec_mod,
-            vk: get_combo_vk(ID_CMB_SEC_KEY, sec_mod, state.sec_vk),
+            modifiers: state.sec_mods,
+            vk: get_combo_vk(ID_CMB_SEC_KEY, state.sec_mods, state.sec_vk),
         },
         hotkey_ai_search: HotkeyConfig {
-            modifiers: ai_mod,
-            vk: get_combo_vk(ID_CMB_AI_KEY, ai_mod, state.ai_vk),
+            modifiers: state.ai_mods,
+            vk: get_combo_vk(ID_CMB_AI_KEY, state.ai_mods, state.ai_vk),
         },
         hotkey_translate: HotkeyConfig {
-            modifiers: trans_mod,
-            vk: get_combo_vk(ID_CMB_TRANS_KEY, trans_mod, state.trans_vk),
+            modifiers: state.trans_mods,
+            vk: get_combo_vk(ID_CMB_TRANS_KEY, state.trans_mods, state.trans_vk),
         },
-        auto_switch_layout: is_checked(ID_CHK_AUTO_SWITCH),
-        auto_select_line: is_checked(ID_CHK_AUTO_SELECT_LINE),
-        start_with_windows: is_checked(ID_CHK_START_WINDOWS),
-        restore_clipboard: is_checked(ID_CHK_RESTORE_CLIPBOARD),
+        auto_switch_layout: state.auto_switch_layout,
+        auto_select_line: state.auto_select_line,
+        start_with_windows: state.start_with_windows,
+        restore_clipboard: state.restore_clipboard,
         ui_language: ui_lang,
         last_welcome_version: state.last_welcome_version.clone(),
     };
